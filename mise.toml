@@ -1,0 +1,15 @@
+[tools]
+bun = "1.4"
+zig = "0.16"
+
+[tasks.dev]
+run = "bun run dev"
+
+[tasks.test]
+run = "bun test"
+
+[tasks.typecheck]
+run = "bun run typecheck"
+
+[tasks.check]
+run = "bun run check"

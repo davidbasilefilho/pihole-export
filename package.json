@@ -1,0 +1,30 @@
+{
+  "name": "pihole-export",
+  "version": "0.1.0",
+  "description": "Keyboard-first Pi-hole v6 query log exporter",
+  "type": "module",
+  "bin": { "pihole-export": "src/index.tsx" },
+  "scripts": {
+    "dev": "bun --watch src/index.tsx",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit",
+    "check": "bun run typecheck && bun test"
+  },
+  "dependencies": {
+    "@effect/platform": "0.97.1",
+    "@effect/platform-bun": "0.91.2",
+    "@opentui/core": "0.5.9",
+    "@opentui/solid": "0.5.9",
+    "@tuiparts/core": "0.0.6",
+    "@tuiparts/solid": "0.0.6",
+    "effect": "3.22.1",
+    "solid-js": "1.9.12"
+  },
+  "devDependencies": {
+    "@types/bun": "1.4.0",
+    "typescript": "7.0.2"
+  },
+  "engines": { "bun": ">=1.4.0" },
+  "license": "Apache-2.0",
+  "private": false
+}
