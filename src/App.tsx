@@ -2,10 +2,9 @@
 import { FileSystem, HttpClient } from "@effect/platform"
 import { BunFileSystem } from "@effect/platform-bun"
 import { useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/solid"
-import type { InputRenderable } from "@tuiparts/core/input"
-import { Button, Input } from "@tuiparts/solid"
-import { Effect, Either, Fiber, Layer, ManagedRuntime, Schema } from "effect"
-import { createEffect, createSignal, For, Match, onMount, Show, Switch, type JSX } from "solid-js"
+import { Button } from "@tuiparts/solid"
+import { Effect, Fiber, Layer, ManagedRuntime, Schema } from "effect"
+import { createSignal, For, Match, Show, Switch } from "solid-js"
 import { createStore } from "solid-js/store"
 import { authenticate, AuthenticatedConnection, fetchAllQueries, fetchSuggestions, HttpLive, logout } from "./api"
 import { writeCsv } from "./csv"
@@ -33,29 +32,32 @@ function Field(props: {
   focused: boolean
   placeholder?: string
   secret?: boolean
+  width?: number
+  minWidth?: number
+  flexGrow?: number
   onInput: (value: string) => void
   onSubmit?: () => void
 }) {
-  let input: InputRenderable | undefined
-  createEffect(() => {
-    if (props.focused) input?.focus()
-    else input?.blur()
-  })
-  onMount(() => { if (props.focused) input?.focus() })
   return (
-    <box flexDirection="column" height={2} flexGrow={1} minWidth={18}>
+    <box
+      flexDirection="column"
+      height={2}
+      flexGrow={props.flexGrow ?? 1}
+      minWidth={props.minWidth ?? 18}
+      {...(props.width === undefined ? {} : { width: props.width })}
+    >
       <text fg={props.focused ? theme.cyan : theme.fg}>{props.label}</text>
       <box backgroundColor={fieldBg(props.focused)} paddingLeft={1} height={1}>
-        <Input
-          ref={(value) => { input = value }}
+        <input
           value={props.value}
+          focused={props.focused}
           placeholder={props.placeholder ?? ""}
           width="100%"
           textColor={props.secret ? fieldBg(props.focused) : theme.fg}
           focusedTextColor={props.secret ? fieldBg(props.focused) : theme.fg}
           cursorColor={theme.blue}
           placeholderColor={theme.muted}
-          onInput={props.onInput}
+          onInput={(next) => props.onInput(next)}
           onSubmit={() => props.onSubmit?.()}
         />
         <text position="absolute" left={1} fg={theme.fg} content={props.secret ? "•".repeat(props.value.length) : ""} />
@@ -69,63 +71,6 @@ function ActionButton(props: { label: string; focused?: boolean; onPress: () => 
     <Button onPress={props.onPress} backgroundColor={props.focused ? theme.blue : theme.bgHighlight}>
       <text fg={props.focused ? theme.bgDark : theme.fg}> {props.label} </text>
     </Button>
-  )
-}
-
-function ConnectionRow(props: {
-  index: number | string
-  label: string
-  focused: boolean
-  stripe?: boolean
-  children: JSX.Element
-  onMouseDown?: () => void
-}) {
-  return (
-    <box
-      height={1}
-      width="100%"
-      flexDirection="row"
-      backgroundColor={props.focused ? theme.blueDark : props.stripe ? theme.bgStripe : theme.bg}
-      {...(props.onMouseDown === undefined ? {} : { onMouseDown: props.onMouseDown })}
-    >
-      <text width={4} fg={props.focused ? theme.green : theme.muted}> {props.focused ? ">" : props.index}</text>
-      <text width={22} fg={props.focused ? theme.cyan : theme.fg}>{props.label}</text>
-      <box flexDirection="row" flexGrow={1}>{props.children}</box>
-    </box>
-  )
-}
-
-function ConnectionInput(props: {
-  value: string
-  focused: boolean
-  placeholder?: string
-  secret?: boolean
-  concealColor?: string
-  onInput: (value: string) => void
-  onSubmit: () => void
-}) {
-  let input: InputRenderable | undefined
-  createEffect(() => {
-    if (props.focused) input?.focus()
-    else input?.blur()
-  })
-  onMount(() => { if (props.focused) input?.focus() })
-  return (
-    <box height={1} flexGrow={1} position="relative">
-      <Input
-        ref={(value) => { input = value }}
-        value={props.value}
-        placeholder={props.placeholder ?? ""}
-        width="100%"
-        textColor={props.secret ? (props.focused ? theme.blueDark : props.concealColor ?? theme.bg) : theme.fg}
-        focusedTextColor={props.secret ? theme.blueDark : theme.fg}
-        cursorColor={theme.yellow}
-        placeholderColor={theme.muted}
-        onInput={props.onInput}
-        onSubmit={props.onSubmit}
-      />
-      <text position="absolute" left={0} fg={theme.fg} content={props.secret ? "•".repeat(props.value.length) : ""} />
-    </box>
   )
 }
 
@@ -149,8 +94,14 @@ export function App() {
   renderer.setBackgroundColor(theme.bg)
 
   const range = defaultRange()
-  const [connectionForm, setConnectionForm] = createStore<Mutable<ConnectionForm>>({
-    host: "", scheme: "http", port: "", authMethod: "password", secret: "", totp: "",
+  const [host, setHost] = createSignal("")
+  const [scheme, setScheme] = createSignal<"http" | "https">("http")
+  const [port, setPort] = createSignal("")
+  const [authMethod, setAuthMethod] = createSignal<AuthMethod>("password")
+  const [secret, setSecret] = createSignal("")
+  const [totp, setTotp] = createSignal("")
+  const connectionForm = (): Mutable<ConnectionForm> => ({
+    host: host(), scheme: scheme(), port: port(), authMethod: authMethod(), secret: secret(), totp: totp(),
   })
   const [filters, setFilters] = createStore<Mutable<FilterForm>>({
     ...range, disk: false, domain: "", clientIp: "", clientName: "", upstream: "",
@@ -188,7 +139,7 @@ export function App() {
   }
 
   const connect = () => {
-    const parsed = Schema.decodeUnknown(ConnectionForm)(connectionForm).pipe(
+    const parsed = Schema.decodeUnknown(ConnectionForm)(connectionForm()).pipe(
       Effect.mapError((error) => new ValidationError({ message: String(error) })),
     )
     runEffect(Effect.gen(function* () {
@@ -200,8 +151,8 @@ export function App() {
     }), ({ authenticated, available }) => {
       setConnection(authenticated)
       setSuggestions(available)
-      setConnectionForm("secret", "")
-      setConnectionForm("totp", "")
+      setSecret("")
+      setTotp("")
       setScreen("filters")
       setFocus(0)
       setMessage(`Connected · session valid ${authenticated.session.validity}s`)
@@ -276,21 +227,21 @@ export function App() {
   }
 
   const selectAuth = (method: AuthMethod) => {
-    if (method === connectionForm.authMethod) return
-    setConnectionForm("authMethod", method)
-    setConnectionForm("secret", "")
-    setConnectionForm("totp", "")
+    if (method === authMethod()) return
+    setAuthMethod(method)
+    setSecret("")
+    setTotp("")
   }
 
   const cycleAuth = (delta: number) => {
     const methods: ReadonlyArray<AuthMethod> = ["password", "session", "none"]
-    const index = methods.indexOf(connectionForm.authMethod)
+    const index = methods.indexOf(authMethod())
     selectAuth(methods[(index + delta + methods.length) % methods.length] ?? "password")
   }
 
-  const connectControls = (): ReadonlyArray<ConnectFocus> => connectionForm.authMethod === "password"
+  const connectControls = (): ReadonlyArray<ConnectFocus> => authMethod() === "password"
     ? ["host", "scheme", "port", "auth", "secret", "totp", "connect"]
-    : connectionForm.authMethod === "session"
+    : authMethod() === "session"
       ? ["host", "scheme", "port", "auth", "secret", "connect"]
       : ["host", "scheme", "port", "auth", "connect"]
 
@@ -300,10 +251,8 @@ export function App() {
     setConnectFocus(controls[(index + delta + controls.length) % controls.length] ?? "host")
   }
 
-  const endpointPreview = () => {
-    const result = Effect.runSync(Effect.either(baseUrl(connectionForm)))
-    return Either.isRight(result) ? `${result.right}/api` : "Enter a Pi-hole IP, domain, or full URL"
-  }
+  const connectionIsFocused = (target: ConnectFocus) => screen() === "connect" && connectFocus() === target
+  const filterIsFocused = (index: number) => screen() === "filters" && focus() === index
 
   const moveSelection = (delta: number) => {
     if (rows().length === 0) return
@@ -317,7 +266,7 @@ export function App() {
       if (key.name === "tab") { key.preventDefault(); moveConnectFocus(key.shift ? -1 : 1); return }
       if (key.name === "escape") return quit()
       if (connectFocus() === "scheme" && (key.name === "left" || key.name === "right" || key.name === "space" || key.name === "return")) {
-        key.preventDefault(); setConnectionForm("scheme", connectionForm.scheme === "http" ? "https" : "http"); return
+        key.preventDefault(); setScheme(scheme() === "http" ? "https" : "http"); return
       }
       if (connectFocus() === "auth" && (key.name === "left" || key.name === "right" || key.name === "space")) {
         key.preventDefault(); cycleAuth(key.name === "left" ? -1 : 1); return
@@ -405,53 +354,46 @@ export function App() {
       <box flexGrow={1} flexDirection="column">
         <Switch>
           <Match when={screen() === "connect"}>
-            <box flexDirection="column" width="100%">
+            <box flexDirection="column" width="100%" maxWidth={100} padding={1} gap={1}>
               <box height={1} width="100%" flexDirection="row" backgroundColor={theme.bgHighlight} paddingLeft={1} paddingRight={1} justifyContent="space-between">
                 <text fg={theme.purple}><b>CONNECTION</b></text>
                 <text fg={theme.muted}>AUTHENTICATE TO CONTINUE</text>
               </box>
-              <box height={1} width="100%" flexDirection="row" backgroundColor={theme.bgStripe}>
-                <text width={4} fg={theme.muted}> #</text><text width={22} fg={theme.cyan}>FIELD</text><text fg={theme.cyan}>VALUE</text>
-              </box>
-              <ConnectionRow index={1} label="Endpoint" focused={["host", "scheme", "port"].includes(connectFocus())}>
-                <box width={10} backgroundColor={connectFocus() === "scheme" ? theme.bgHighlight : ["host", "port"].includes(connectFocus()) ? theme.blueDark : theme.bg} paddingLeft={1}>
-                  <text fg={connectFocus() === "scheme" ? theme.yellow : theme.fg}>{connectionForm.scheme} ◀▶</text>
-                </box>
-                <ConnectionInput value={connectionForm.host} focused={connectFocus() === "host"} placeholder="10.200.0.242 or https://pi.hole" onInput={(v) => setConnectionForm("host", v)} onSubmit={connect} />
-                <box width={1}><text fg={theme.muted}>:</text></box>
-                <box width={9} backgroundColor={connectFocus() === "port" ? theme.bgHighlight : ["host", "scheme"].includes(connectFocus()) ? theme.blueDark : theme.bg}>
-                  <ConnectionInput value={connectionForm.port} focused={connectFocus() === "port"} placeholder="80/443" onInput={(v) => setConnectionForm("port", v)} onSubmit={connect} />
-                </box>
-              </ConnectionRow>
-              <ConnectionRow index={2} label="Authentication" focused={connectFocus() === "auth"} stripe>
-                <For each={["password", "session", "none"] as const}>{(method) => (
-                  <box
-                    width={method === "session" ? 15 : 12}
-                    paddingLeft={1}
-                    backgroundColor={connectionForm.authMethod === method ? theme.blueDark : theme.bgHighlight}
-                    onMouseDown={() => { selectAuth(method); setConnectFocus("auth") }}
-                  >
-                    <text fg={connectionForm.authMethod === method ? theme.green : theme.muted}>{method === "session" ? "SESSION ID" : method.toUpperCase()}</text>
+              <box flexDirection="row" gap={1}>
+                <box flexDirection="column" height={2} width={12} minWidth={12}>
+                  <text fg={connectFocus() === "scheme" ? theme.cyan : theme.fg}>Scheme</text>
+                  <box height={1} backgroundColor={fieldBg(connectFocus() === "scheme")} paddingLeft={1}>
+                    <text fg={connectFocus() === "scheme" ? theme.yellow : theme.fg}>{scheme()} ◀▶</text>
                   </box>
-                )}</For>
-              </ConnectionRow>
-              <Show when={connectionForm.authMethod !== "none"} fallback={<box />}>
-                <ConnectionRow index={3} label={connectionForm.authMethod === "session" ? "Session ID" : "Password"} focused={connectFocus() === "secret"}>
-                  <ConnectionInput value={connectionForm.secret} focused={connectFocus() === "secret"} secret placeholder={connectionForm.authMethod === "session" ? "Existing API session credential" : "Admin or application password"} onInput={(v) => setConnectionForm("secret", v)} onSubmit={connect} />
-                </ConnectionRow>
+                </box>
+                <Field label="Pi-hole IP / domain / full URL" value={host()} focused={connectionIsFocused("host")} placeholder="10.200.0.242 or https://pi.hole" onInput={setHost} onSubmit={connect} />
+                <Field label="Port (optional)" value={port()} focused={connectionIsFocused("port")} placeholder="80 / 443" width={14} minWidth={14} flexGrow={0} onInput={setPort} onSubmit={connect} />
+              </box>
+              <box flexDirection="column" height={2}>
+                <text fg={connectFocus() === "auth" ? theme.cyan : theme.fg}>Authentication</text>
+                <box flexDirection="row" height={1}>
+                  <For each={["password", "session", "none"] as const}>{(method) => (
+                    <box
+                      width={method === "session" ? 15 : 12}
+                      paddingLeft={1}
+                      backgroundColor={authMethod() === method ? theme.blueDark : theme.bgStripe}
+                      onMouseDown={() => { selectAuth(method); setConnectFocus("auth") }}
+                    >
+                      <text fg={authMethod() === method ? theme.green : theme.muted}>{method === "session" ? "SESSION ID" : method.toUpperCase()}</text>
+                    </box>
+                  )}</For>
+                </box>
+              </box>
+              <Show when={authMethod() !== "none"} fallback={<box />}>
+                <box flexDirection="row" gap={1}>
+                  <Field label={authMethod() === "session" ? "Existing session ID" : "Admin / application password"} value={secret()} focused={connectionIsFocused("secret")} secret placeholder={authMethod() === "session" ? "Session credential" : "Password"} onInput={setSecret} onSubmit={connect} />
+                  <Show when={authMethod() === "password"} fallback={<box />}>
+                    <Field label="TOTP (optional)" value={totp()} focused={connectionIsFocused("totp")} secret placeholder="123456" width={20} minWidth={20} flexGrow={0} onInput={setTotp} onSubmit={connect} />
+                  </Show>
+                </box>
               </Show>
-              <Show when={connectionForm.authMethod === "password"} fallback={<box />}>
-                <ConnectionRow index={4} label="TOTP" focused={connectFocus() === "totp"} stripe>
-                  <ConnectionInput value={connectionForm.totp} focused={connectFocus() === "totp"} secret concealColor={theme.bgStripe} placeholder="Optional when enabled" onInput={(v) => setConnectionForm("totp", v)} onSubmit={connect} />
-                </ConnectionRow>
-              </Show>
-              <ConnectionRow index={connectionForm.authMethod === "password" ? 5 : connectionForm.authMethod === "session" ? 4 : 3} label="Resolved URL" focused={false} stripe={connectionForm.authMethod !== "password"}>
-                <text fg={endpointPreview().startsWith("Enter") ? theme.muted : theme.green}>{endpointPreview()}</text>
-              </ConnectionRow>
-              <ConnectionRow index="" label="" focused={connectFocus() === "connect"} onMouseDown={() => { setConnectFocus("connect"); connect() }}>
-                <text fg={busy() ? theme.yellow : connectFocus() === "connect" ? theme.green : theme.blue}><b>{busy() ? "CONNECTING…" : "CONNECT"}</b></text>
-              </ConnectionRow>
-              <box height={1} width="100%" backgroundColor={theme.bgStripe} paddingLeft={4}>
+              <box flexDirection="row" alignItems="center" gap={2}>
+                <ActionButton label={busy() ? "CONNECTING…" : "CONNECT"} focused={connectFocus() === "connect"} onPress={connect} />
                 <text fg={theme.muted}>Credentials remain in memory only · TLS recommended off-host</text>
               </box>
             </box>
@@ -461,25 +403,25 @@ export function App() {
             <box flexDirection="column" padding={1} gap={1}>
               <text fg={theme.cyan}>ADVANCED FILTERING</text>
               <box gap={1}>
-                <Field label="From · local (inclusive)" value={filters.from} focused={focus() === 0} onInput={(v) => setFilters("from", v)} />
-                <Field label="Until · local (exclusive)" value={filters.until} focused={focus() === 1} onInput={(v) => setFilters("until", v)} />
-                <Field label="Timezone (IANA)" value={filters.timezone} focused={focus() === 2} placeholder="America/Sao_Paulo" onInput={(v) => setFilters("timezone", v)} />
+                <Field label="From · local (inclusive)" value={filters.from} focused={filterIsFocused(0)} onInput={(v) => setFilters("from", v)} />
+                <Field label="Until · local (exclusive)" value={filters.until} focused={filterIsFocused(1)} onInput={(v) => setFilters("until", v)} />
+                <Field label="Timezone (IANA)" value={filters.timezone} focused={filterIsFocused(2)} placeholder="America/Sao_Paulo" onInput={(v) => setFilters("timezone", v)} />
                 <box alignItems="center" gap={1} height={2} onMouseDown={() => setFilters("disk", !filters.disk)}>
                   <text fg={filters.disk ? theme.yellow : theme.muted}>{filters.disk ? "[x]" : "[ ]"}</text>
                   <text fg={focus() === 11 ? theme.cyan : theme.fg}>On-disk · slower{dimensions().width > 100 ? "; needed beyond in-memory history" : ""}</text>
                 </box>
               </box>
               <box gap={1}>
-                <Field label="Domain*" value={filters.domain} focused={focus() === 3} placeholder="Select or type…" onInput={(v) => setFilters("domain", v)} />
-                <Field label="Client (IP)*" value={filters.clientIp} focused={focus() === 4} placeholder="Select or type…" onInput={(v) => setFilters("clientIp", v)} />
-                <Field label="Client (name)*" value={filters.clientName} focused={focus() === 5} placeholder="Select or type…" onInput={(v) => setFilters("clientName", v)} />
-                <Field label="Upstream*" value={filters.upstream} focused={focus() === 6} placeholder="Select or type…" onInput={(v) => setFilters("upstream", v)} />
+                <Field label="Domain*" value={filters.domain} focused={filterIsFocused(3)} placeholder="Select or type…" onInput={(v) => setFilters("domain", v)} />
+                <Field label="Client (IP)*" value={filters.clientIp} focused={filterIsFocused(4)} placeholder="Select or type…" onInput={(v) => setFilters("clientIp", v)} />
+                <Field label="Client (name)*" value={filters.clientName} focused={filterIsFocused(5)} placeholder="Select or type…" onInput={(v) => setFilters("clientName", v)} />
+                <Field label="Upstream*" value={filters.upstream} focused={filterIsFocused(6)} placeholder="Select or type…" onInput={(v) => setFilters("upstream", v)} />
               </box>
               <box gap={1}>
-                <Field label="Type" value={filters.type} focused={focus() === 7} placeholder="Select or type…" onInput={(v) => setFilters("type", v)} />
-                <Field label="Status" value={filters.status} focused={focus() === 8} placeholder="Select or type…" onInput={(v) => setFilters("status", v)} />
-                <Field label="Reply" value={filters.reply} focused={focus() === 9} placeholder="Select or type…" onInput={(v) => setFilters("reply", v)} />
-                <Field label="DNSSEC status" value={filters.dnssec} focused={focus() === 10} placeholder="Select or type…" onInput={(v) => setFilters("dnssec", v)} />
+                <Field label="Type" value={filters.type} focused={filterIsFocused(7)} placeholder="Select or type…" onInput={(v) => setFilters("type", v)} />
+                <Field label="Status" value={filters.status} focused={filterIsFocused(8)} placeholder="Select or type…" onInput={(v) => setFilters("status", v)} />
+                <Field label="Reply" value={filters.reply} focused={filterIsFocused(9)} placeholder="Select or type…" onInput={(v) => setFilters("reply", v)} />
+                <Field label="DNSSEC status" value={filters.dnssec} focused={filterIsFocused(10)} placeholder="Select or type…" onInput={(v) => setFilters("dnssec", v)} />
               </box>
               <text fg={theme.muted}>* Manual input supported · * wildcard · Ctrl+Space opens Pi-hole suggestions</text>
               <box><ActionButton label={busy() ? "QUERYING…" : "FETCH QUERIES"} focused={focus() === 12} onPress={submitFilters} /></box>
@@ -555,7 +497,7 @@ export function App() {
       {(_) => <box position="absolute" top={0} left={0} zIndex={1000} width="100%" height="100%" alignItems="center" justifyContent="center" backgroundColor={theme.bgDark}>
           <box width="85%" maxWidth={100} flexDirection="column" backgroundColor={theme.bgHighlight} border borderColor={theme.green} padding={1} gap={1}>
             <text fg={theme.green}>EXPORT ALL {rows().length.toLocaleString()} MATCHING ROWS</text>
-            <Field label="Local or UNC destination" value={exportPath()} focused placeholder="queries.csv or \\server\share\queries.csv" onInput={setExportPath} onSubmit={exportRows} />
+            <Field label="Local or UNC destination" value={exportPath()} focused={screen() === "export"} placeholder="queries.csv or \\server\share\queries.csv" onInput={setExportPath} onSubmit={exportRows} />
             <text fg={theme.muted}>Enter export · Esc cancel</text>
           </box>
       </box>}

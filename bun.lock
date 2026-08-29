@@ -9,7 +9,6 @@
         "@effect/platform-bun": "0.91.2",
         "@opentui/core": "0.5.9",
         "@opentui/solid": "0.5.9",
-        "@tuiparts/core": "0.0.6",
         "@tuiparts/solid": "0.0.6",
         "effect": "3.22.1",
         "solid-js": "1.9.12",
