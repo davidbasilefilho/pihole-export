@@ -4,8 +4,8 @@ import { BunFileSystem } from "@effect/platform-bun"
 import { useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/solid"
 import type { InputRenderable } from "@tuiparts/core/input"
 import { Button, Input } from "@tuiparts/solid"
-import { Effect, Fiber, Layer, ManagedRuntime, Schema } from "effect"
-import { createEffect, createSignal, For, Match, onMount, Show, Switch } from "solid-js"
+import { Effect, Either, Fiber, Layer, ManagedRuntime, Schema } from "effect"
+import { createEffect, createSignal, For, Match, onMount, Show, Switch, type JSX } from "solid-js"
 import { createStore } from "solid-js/store"
 import { authenticate, AuthenticatedConnection, fetchAllQueries, fetchSuggestions, HttpLive, logout } from "./api"
 import { writeCsv } from "./csv"
@@ -16,6 +16,7 @@ import { theme } from "./theme"
 
 type Screen = "connect" | "filters" | "results" | "inspect" | "help" | "confirm" | "export" | "suggestions"
 type SuggestionField = keyof Suggestions
+type ConnectFocus = "host" | "scheme" | "port" | "auth" | "secret" | "totp" | "connect"
 type Mutable<T> = { -readonly [K in keyof T]: T[K] }
 type AppServices = HttpClient.HttpClient | FileSystem.FileSystem
 
@@ -71,11 +72,68 @@ function ActionButton(props: { label: string; focused?: boolean; onPress: () => 
   )
 }
 
+function ConnectionRow(props: {
+  index: number | string
+  label: string
+  focused: boolean
+  stripe?: boolean
+  children: JSX.Element
+  onMouseDown?: () => void
+}) {
+  return (
+    <box
+      height={1}
+      width="100%"
+      flexDirection="row"
+      backgroundColor={props.focused ? theme.blueDark : props.stripe ? theme.bgStripe : theme.bg}
+      {...(props.onMouseDown === undefined ? {} : { onMouseDown: props.onMouseDown })}
+    >
+      <text width={4} fg={props.focused ? theme.green : theme.muted}> {props.focused ? ">" : props.index}</text>
+      <text width={22} fg={props.focused ? theme.cyan : theme.fg}>{props.label}</text>
+      <box flexDirection="row" flexGrow={1}>{props.children}</box>
+    </box>
+  )
+}
+
+function ConnectionInput(props: {
+  value: string
+  focused: boolean
+  placeholder?: string
+  secret?: boolean
+  concealColor?: string
+  onInput: (value: string) => void
+  onSubmit: () => void
+}) {
+  let input: InputRenderable | undefined
+  createEffect(() => {
+    if (props.focused) input?.focus()
+    else input?.blur()
+  })
+  onMount(() => { if (props.focused) input?.focus() })
+  return (
+    <box height={1} flexGrow={1} position="relative">
+      <Input
+        ref={(value) => { input = value }}
+        value={props.value}
+        placeholder={props.placeholder ?? ""}
+        width="100%"
+        textColor={props.secret ? (props.focused ? theme.blueDark : props.concealColor ?? theme.bg) : theme.fg}
+        focusedTextColor={props.secret ? theme.blueDark : theme.fg}
+        cursorColor={theme.yellow}
+        placeholderColor={theme.muted}
+        onInput={props.onInput}
+        onSubmit={props.onSubmit}
+      />
+      <text position="absolute" left={0} fg={theme.fg} content={props.secret ? "•".repeat(props.value.length) : ""} />
+    </box>
+  )
+}
+
 function KeyBar(props: { items: ReadonlyArray<readonly [string, string]> }) {
   return (
-    <box height={1} backgroundColor={theme.bgHighlight}>
+    <box height={1} width="100%" flexDirection="row" backgroundColor={theme.bgHighlight}>
       <For each={props.items}>{([key, label]) => (
-        <box paddingRight={1} gap={1}>
+        <box flexDirection="row" paddingRight={1} gap={1}>
           <text fg={theme.yellow}>{key}</text><text fg={theme.muted}>{label} │</text>
         </box>
       )}</For>
@@ -99,6 +157,7 @@ export function App() {
     type: "", status: "", reply: "", dnssec: "",
   })
   const [screen, setScreen] = createSignal<Screen>("connect")
+  const [connectFocus, setConnectFocus] = createSignal<ConnectFocus>("host")
   const [returnScreen, setReturnScreen] = createSignal<Screen>("results")
   const [focus, setFocus] = createSignal(0)
   const [connection, setConnection] = createSignal<AuthenticatedConnection | null>(null)
@@ -216,10 +275,34 @@ export function App() {
     setScreen("filters")
   }
 
+  const selectAuth = (method: AuthMethod) => {
+    if (method === connectionForm.authMethod) return
+    setConnectionForm("authMethod", method)
+    setConnectionForm("secret", "")
+    setConnectionForm("totp", "")
+  }
+
   const cycleAuth = (delta: number) => {
     const methods: ReadonlyArray<AuthMethod> = ["password", "session", "none"]
     const index = methods.indexOf(connectionForm.authMethod)
-    setConnectionForm("authMethod", methods[(index + delta + methods.length) % methods.length] ?? "password")
+    selectAuth(methods[(index + delta + methods.length) % methods.length] ?? "password")
+  }
+
+  const connectControls = (): ReadonlyArray<ConnectFocus> => connectionForm.authMethod === "password"
+    ? ["host", "scheme", "port", "auth", "secret", "totp", "connect"]
+    : connectionForm.authMethod === "session"
+      ? ["host", "scheme", "port", "auth", "secret", "connect"]
+      : ["host", "scheme", "port", "auth", "connect"]
+
+  const moveConnectFocus = (delta: number) => {
+    const controls = connectControls()
+    const index = Math.max(0, controls.indexOf(connectFocus()))
+    setConnectFocus(controls[(index + delta + controls.length) % controls.length] ?? "host")
+  }
+
+  const endpointPreview = () => {
+    const result = Effect.runSync(Effect.either(baseUrl(connectionForm)))
+    return Either.isRight(result) ? `${result.right}/api` : "Enter a Pi-hole IP, domain, or full URL"
   }
 
   const moveSelection = (delta: number) => {
@@ -231,15 +314,15 @@ export function App() {
     const current = screen()
     if (key.ctrl && key.name === "c") return quit()
     if (current === "connect") {
-      if (key.name === "tab") { key.preventDefault(); setFocus((focus() + (key.shift ? 6 : 1)) % 7); return }
+      if (key.name === "tab") { key.preventDefault(); moveConnectFocus(key.shift ? -1 : 1); return }
       if (key.name === "escape") return quit()
-      if (focus() === 1 && (key.name === "left" || key.name === "right" || key.name === "space")) {
+      if (connectFocus() === "scheme" && (key.name === "left" || key.name === "right" || key.name === "space" || key.name === "return")) {
         key.preventDefault(); setConnectionForm("scheme", connectionForm.scheme === "http" ? "https" : "http"); return
       }
-      if (focus() === 3 && (key.name === "left" || key.name === "right" || key.name === "space")) {
+      if (connectFocus() === "auth" && (key.name === "left" || key.name === "right" || key.name === "space")) {
         key.preventDefault(); cycleAuth(key.name === "left" ? -1 : 1); return
       }
-      if (focus() === 6 && key.name === "return") { key.preventDefault(); connect() }
+      if (connectFocus() === "connect" && key.name === "return") { key.preventDefault(); connect() }
       return
     }
     if (current === "filters") {
@@ -322,26 +405,55 @@ export function App() {
       <box flexGrow={1} flexDirection="column">
         <Switch>
           <Match when={screen() === "connect"}>
-            <box flexDirection="column" padding={1} gap={1} maxWidth={100}>
-              <text fg={theme.cyan}>CONNECTION</text>
-              <box gap={1}>
-                <Field label="Pi-hole IP / domain / URL" value={connectionForm.host} focused={focus() === 0} placeholder="10.200.0.242 or https://pi.hole" onInput={(v) => setConnectionForm("host", v)} />
-                <box flexDirection="column" height={2} width={12}>
-                  <text fg={focus() === 1 ? theme.cyan : theme.fg}>Scheme</text>
-                  <box backgroundColor={fieldBg(focus() === 1)} paddingLeft={1}><text fg={theme.fg}>{connectionForm.scheme} ◀▶</text></box>
-                </box>
-                <Field label="Port (optional)" value={connectionForm.port} focused={focus() === 2} placeholder="80 / 443" onInput={(v) => setConnectionForm("port", v)} />
+            <box flexDirection="column" width="100%">
+              <box height={1} width="100%" flexDirection="row" backgroundColor={theme.bgHighlight} paddingLeft={1} paddingRight={1} justifyContent="space-between">
+                <text fg={theme.purple}><b>CONNECTION</b></text>
+                <text fg={theme.muted}>AUTHENTICATE TO CONTINUE</text>
               </box>
-              <box gap={1}>
-                <box flexDirection="column" height={2} width={20}>
-                  <text fg={focus() === 3 ? theme.cyan : theme.fg}>Authentication</text>
-                  <box backgroundColor={fieldBg(focus() === 3)} paddingLeft={1}><text fg={theme.fg}>{connectionForm.authMethod} ◀▶</text></box>
-                </box>
-                <Field label={connectionForm.authMethod === "session" ? "Existing session ID" : "Admin / application password"} value={connectionForm.secret} focused={focus() === 4} secret onInput={(v) => setConnectionForm("secret", v)} />
-                <Field label="TOTP (if enabled)" value={connectionForm.totp} focused={focus() === 5} secret onInput={(v) => setConnectionForm("totp", v)} onSubmit={connect} />
+              <box height={1} width="100%" flexDirection="row" backgroundColor={theme.bgStripe}>
+                <text width={4} fg={theme.muted}> #</text><text width={22} fg={theme.cyan}>FIELD</text><text fg={theme.cyan}>VALUE</text>
               </box>
-              <box><ActionButton label={busy() ? "CONNECTING…" : "CONNECT"} focused={focus() === 6} onPress={connect} /></box>
-              <text fg={theme.muted}>Credentials remain in memory and are cleared after authentication. TLS is recommended off-host.</text>
+              <ConnectionRow index={1} label="Endpoint" focused={["host", "scheme", "port"].includes(connectFocus())}>
+                <box width={10} backgroundColor={connectFocus() === "scheme" ? theme.bgHighlight : ["host", "port"].includes(connectFocus()) ? theme.blueDark : theme.bg} paddingLeft={1}>
+                  <text fg={connectFocus() === "scheme" ? theme.yellow : theme.fg}>{connectionForm.scheme} ◀▶</text>
+                </box>
+                <ConnectionInput value={connectionForm.host} focused={connectFocus() === "host"} placeholder="10.200.0.242 or https://pi.hole" onInput={(v) => setConnectionForm("host", v)} onSubmit={connect} />
+                <box width={1}><text fg={theme.muted}>:</text></box>
+                <box width={9} backgroundColor={connectFocus() === "port" ? theme.bgHighlight : ["host", "scheme"].includes(connectFocus()) ? theme.blueDark : theme.bg}>
+                  <ConnectionInput value={connectionForm.port} focused={connectFocus() === "port"} placeholder="80/443" onInput={(v) => setConnectionForm("port", v)} onSubmit={connect} />
+                </box>
+              </ConnectionRow>
+              <ConnectionRow index={2} label="Authentication" focused={connectFocus() === "auth"} stripe>
+                <For each={["password", "session", "none"] as const}>{(method) => (
+                  <box
+                    width={method === "session" ? 15 : 12}
+                    paddingLeft={1}
+                    backgroundColor={connectionForm.authMethod === method ? theme.blueDark : theme.bgHighlight}
+                    onMouseDown={() => { selectAuth(method); setConnectFocus("auth") }}
+                  >
+                    <text fg={connectionForm.authMethod === method ? theme.green : theme.muted}>{method === "session" ? "SESSION ID" : method.toUpperCase()}</text>
+                  </box>
+                )}</For>
+              </ConnectionRow>
+              <Show when={connectionForm.authMethod !== "none"} fallback={<box />}>
+                <ConnectionRow index={3} label={connectionForm.authMethod === "session" ? "Session ID" : "Password"} focused={connectFocus() === "secret"}>
+                  <ConnectionInput value={connectionForm.secret} focused={connectFocus() === "secret"} secret placeholder={connectionForm.authMethod === "session" ? "Existing API session credential" : "Admin or application password"} onInput={(v) => setConnectionForm("secret", v)} onSubmit={connect} />
+                </ConnectionRow>
+              </Show>
+              <Show when={connectionForm.authMethod === "password"} fallback={<box />}>
+                <ConnectionRow index={4} label="TOTP" focused={connectFocus() === "totp"} stripe>
+                  <ConnectionInput value={connectionForm.totp} focused={connectFocus() === "totp"} secret concealColor={theme.bgStripe} placeholder="Optional when enabled" onInput={(v) => setConnectionForm("totp", v)} onSubmit={connect} />
+                </ConnectionRow>
+              </Show>
+              <ConnectionRow index={connectionForm.authMethod === "password" ? 5 : connectionForm.authMethod === "session" ? 4 : 3} label="Resolved URL" focused={false} stripe={connectionForm.authMethod !== "password"}>
+                <text fg={endpointPreview().startsWith("Enter") ? theme.muted : theme.green}>{endpointPreview()}</text>
+              </ConnectionRow>
+              <ConnectionRow index="" label="" focused={connectFocus() === "connect"} onMouseDown={() => { setConnectFocus("connect"); connect() }}>
+                <text fg={busy() ? theme.yellow : connectFocus() === "connect" ? theme.green : theme.blue}><b>{busy() ? "CONNECTING…" : "CONNECT"}</b></text>
+              </ConnectionRow>
+              <box height={1} width="100%" backgroundColor={theme.bgStripe} paddingLeft={4}>
+                <text fg={theme.muted}>Credentials remain in memory only · TLS recommended off-host</text>
+              </box>
             </box>
           </Match>
 
@@ -389,9 +501,15 @@ export function App() {
         </Switch>
       </box>
 
-      <Show when={message() !== ""} fallback={<box />}><box height={1} paddingLeft={1}><text fg={message().startsWith("Exported") || message().includes("queries") ? theme.green : theme.orange}>{message()}</text></box></Show>
+      <Show when={screen() === "connect"} fallback={
+        <Show when={message() !== ""} fallback={<box />}><box height={1} paddingLeft={1}><text fg={message().startsWith("Exported") || message().startsWith("Connected") || message().includes("queries") ? theme.green : theme.orange}>{message()}</text></box></Show>
+      }>
+        <box height={1} width="100%" backgroundColor={theme.bgStripe} paddingLeft={1}>
+          <text fg={busy() ? theme.yellow : message() === "" ? theme.green : theme.orange}>{busy() ? "CONNECTING · AUTHENTICATING AND VERIFYING PI-HOLE V6" : message() || "READY"}</text>
+        </box>
+      </Show>
 
-      <Show when={screen() === "connect"} fallback={<box />}><KeyBar items={[["TAB", "NEXT"], ["◀/▶", "SELECT"], ["ENTER", "CONNECT"], ["ESC", "QUIT"]]} /></Show>
+      <Show when={screen() === "connect"} fallback={<box />}><KeyBar items={[["TAB", "NEXT"], ["S-TAB", "PREV"], ["◀/▶", "SELECT"], ["ENTER", "CONNECT"], ["ESC", "QUIT"]]} /></Show>
       <Show when={screen() === "filters"} fallback={<box />}><KeyBar items={[["TAB", "NEXT"], ["^SPACE", "SUGGEST"], ["ENTER", "QUERY"], ["ESC", "QUIT"]]} /></Show>
       <Show when={screen() === "results"} fallback={<box />}><KeyBar items={[["↑/↓ J/K", "NAVIGATE"], ["ENTER", "INSPECT"], ["F", "FILTERS"], ["R", "RERUN"], ["E", "EXPORT"], ["?", "HELP"], ["Q", "QUIT"]]} /></Show>
 
