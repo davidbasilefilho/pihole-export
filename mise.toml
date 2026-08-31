@@ -8,8 +8,14 @@ run = "bun run dev"
 [tasks.test]
 run = "bun test"
 
-[tasks.typecheck]
-run = "bun run typecheck"
+[tasks.fmt]
+run = "bun run fmt"
+
+[tasks.lint]
+run = "bun run lint"
 
 [tasks.check]
 run = "bun run check"
+
+[tasks.compile]
+run = "bun run compile"

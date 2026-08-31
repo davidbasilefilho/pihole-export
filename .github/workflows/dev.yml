@@ -1,0 +1,51 @@
+name: Dev Release
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: jdx/mise-action@v4
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Check
+        run: mise run check
+
+      - name: Compile
+        run: mise run compile
+
+      - name: Prepare release
+        id: release
+        run: |
+          VERSION="$(bun -e 'console.log((await Bun.file("package.json").json()).version)')"
+          SHORT_SHA="${GITHUB_SHA::7}"
+
+          ASSET="pihole-export-${VERSION}-${SHORT_SHA}"
+          mv bin/pihole-export "$ASSET"
+
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "short_sha=$SHORT_SHA" >> "$GITHUB_OUTPUT"
+          echo "asset=$ASSET" >> "$GITHUB_OUTPUT"
+
+      - name: Create prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "dev-${{ steps.release.outputs.short_sha }}" \
+            "${{ steps.release.outputs.asset }}" \
+            --target "$GITHUB_SHA" \
+            --title "pihole-export ${{ steps.release.outputs.version }} (${{ steps.release.outputs.short_sha }})" \
+            --generate-notes \
+            --prerelease

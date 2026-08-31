@@ -15,4 +15,4 @@ export const theme = {
   purple: "#9d7cd8",
   magenta: "#bb9af7",
   red: "#f7768e",
-} as const
+} as const;
