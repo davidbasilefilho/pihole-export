@@ -1,6 +1,6 @@
 /** @jsxImportSource @opentui/solid */
 import { useRenderer, useTerminalDimensions } from "@opentui/solid";
-import { Effect, Fiber, Schema, Stream } from "effect";
+import { Effect, Fiber, Schema } from "effect";
 import { createMemo, createSignal, Match, Show, Switch } from "solid-js";
 import { createStore } from "solid-js/store";
 
@@ -11,7 +11,6 @@ import {
   fetchAllQueries,
   fetchSuggestions,
   logout,
-  pollLiveQueries,
   streamQueryPages,
 } from "./lib/api";
 import { exportQueryPages } from "./lib/export";
@@ -135,7 +134,6 @@ export function App() {
   const [message, setMessage] = createSignal("");
   const [pendingSpec, setPendingSpec] = createSignal<QuerySpec | null>(null);
   const [activeSpec, setActiveSpec] = createSignal<QuerySpec | null>(null);
-  const [live, setLive] = createSignal(false);
   const [aggregate, setAggregate] = createSignal(false);
   const [sort, setSort] = createSignal<ResultSort>("time-desc");
   const [search, setSearch] = createSignal("");
@@ -210,17 +208,6 @@ export function App() {
     setScreen("results");
     setSelected(0);
     setActiveSpec(spec);
-    if (live()) {
-      setRows([]);
-      runEffect(
-        pollLiveQueries(active, spec).pipe(
-          Stream.runForEach((row) => Effect.sync(() => setRows((current) => [row, ...current]))),
-        ),
-        () => undefined,
-      );
-      setMessage("Live query mode started");
-      return;
-    }
     runEffect(fetchAllQueries(active, spec), (result) => {
       setRows(result);
       setMessage(`${result.length.toLocaleString()} queries`);
@@ -246,22 +233,7 @@ export function App() {
     cancel?.();
     runId += 1;
     setBusy(false);
-    setLive(false);
     setMessage(text);
-  };
-
-  const startOrStopLive = () => {
-    if (busy() && live()) return stopWork("Live mode stopped");
-    const spec = activeSpec();
-    if (spec === null) {
-      setLive(true);
-      setScreen("filters");
-      setFilterFocus(14);
-      setMessage("Configure filters, then start live mode");
-      return;
-    }
-    setLive(true);
-    executeQuery(spec);
   };
 
   const openExport = () => {
@@ -278,7 +250,6 @@ export function App() {
     const path = exportPath().trim();
     if (active === null || spec === null) return;
     if (path === "") return setMessage("Enter an export destination");
-    if (busy() && live()) stopWork("Live mode stopped for export");
     runEffect(exportQueryPages(path, exportFormat(), streamQueryPages(active, spec)), (result) => {
       setScreen("results");
       setMessage(`Exported ${result.count.toLocaleString()} rows → ${result.path}`);
@@ -286,7 +257,6 @@ export function App() {
   };
 
   const openPresets = () => {
-    if (busy() && live()) stopWork("Live mode stopped");
     runEffect(loadPresets(defaultPresetPath()), (loaded) => {
       setPresets(loaded);
       setPresetName("");
@@ -437,9 +407,6 @@ export function App() {
       case "AGGREGATE":
         setAggregate((value) => !value);
         break;
-      case "LIVE":
-        startOrStopLive();
-        break;
       case "REFINE":
         inspect();
         break;
@@ -477,7 +444,6 @@ export function App() {
     filterFocus,
     moveFilterFocus: (delta) => setFilterFocus(moveIndex(filterFocus(), delta, filterControlCount)),
     toggleDisk: () => setFilters("disk", !filters.disk),
-    toggleLiveSetting: () => setLive((value) => !value),
     openSuggestions,
     openPresets,
     submitFilters,
@@ -590,9 +556,7 @@ export function App() {
               setFilters={setFilters}
               focus={filterFocus()}
               busy={busy()}
-              live={live()}
               onFocus={setFilterFocus}
-              onLive={() => setLive((value) => !value)}
               onPresets={() => {
                 setReturnScreen("filters");
                 openPresets();
@@ -607,7 +571,6 @@ export function App() {
               rows={visibleRows()}
               selected={selected()}
               busy={busy()}
-              live={live()}
               aggregate={aggregate()}
               analytics={analytics()}
               search={search()}

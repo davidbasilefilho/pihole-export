@@ -15,7 +15,6 @@ export function ResultsScreen(props: {
   readonly rows: ReadonlyArray<Query>;
   readonly selected: number;
   readonly busy: boolean;
-  readonly live: boolean;
   readonly aggregate: boolean;
   readonly analytics: QueryAnalytics;
   readonly search: string;
@@ -45,11 +44,7 @@ export function ResultsScreen(props: {
         ? props.aggregate
           ? "RESULTS"
           : "AGGREGATE"
-        : action === "LIVE"
-          ? props.live
-            ? "STOP LIVE"
-            : "LIVE"
-          : action;
+        : action;
   const aggregateColumn = (title: string, rows: QueryAnalytics["domains"]) => (
     <box flexDirection="column" flexGrow={1} minWidth={24}>
       <text fg={theme.cyan}>{title}</text>
@@ -66,7 +61,7 @@ export function ResultsScreen(props: {
             <ActionButton
               label={actionLabel(action)}
               focused={props.actionFocus === index()}
-              tone={action === "LIVE" && props.live ? "danger" : "primary"}
+              tone="primary"
               onFocus={() => props.onActionFocus(index())}
               onPress={() => props.onAction(index())}
             />
@@ -76,9 +71,7 @@ export function ResultsScreen(props: {
       <box height={1} paddingLeft={1}>
         <text fg={theme.green}>
           {props.busy
-            ? props.live
-              ? "LIVE POLLING… Esc cancels"
-              : "FETCHING PAGES… Esc cancels"
+            ? "FETCHING PAGES… Esc cancels"
             : `${props.rows.length.toLocaleString()} QUERIES${props.search ? ` · SEARCH “${props.search}”` : ""}`}
         </text>
       </box>

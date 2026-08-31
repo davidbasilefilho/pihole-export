@@ -4,7 +4,7 @@ import {
   HttpClientRequest,
   HttpClientResponse,
 } from "@effect/platform";
-import { Chunk, Duration, Effect, Option, Schedule, Schema, Stream } from "effect";
+import { Chunk, Effect, Option, Schema, Stream } from "effect";
 
 import {
   ApiError,
@@ -197,47 +197,5 @@ export const fetchAllQueries = (connection: AuthenticatedConnection, spec: Query
     Stream.runCollect,
     Effect.map(Chunk.toReadonlyArray),
   );
-
-export const deduplicateLiveRows = (seen: Set<string>, rows: ReadonlyArray<Query>) => {
-  const fresh: Array<Query> = [];
-  for (const row of rows) {
-    const key = `${row.id}:${row.time}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    fresh.push(row);
-  }
-  return fresh;
-};
-
-export const liveQuerySpec = (spec: QuerySpec, now: () => number = Date.now): QuerySpec => ({
-  ...spec,
-  disk: false,
-  until: Math.max(spec.from + 1, Math.floor(now() / 1000) + 1),
-});
-
-export const pollLiveQueries = (
-  connection: AuthenticatedConnection,
-  spec: QuerySpec,
-  options: {
-    readonly interval?: Duration.DurationInput;
-    readonly pageLength?: number;
-    readonly now?: () => number;
-  } = {},
-) => {
-  const interval = options.interval ?? "2 seconds";
-  const pageLength = options.pageLength ?? 1_000;
-  return Stream.repeatEffectWithSchedule(
-    Effect.suspend(() =>
-      fetchQueryPage(connection, liveQuerySpec(spec, options.now), 0, undefined, pageLength),
-    ),
-    Schedule.spaced(interval),
-  ).pipe(
-    Stream.mapAccum(new Set<string>(), (seen, page) => [
-      seen,
-      deduplicateLiveRows(seen, page.queries),
-    ]),
-    Stream.mapConcat((rows) => rows),
-  );
-};
 
 export const HttpLive = FetchHttpClient.layer;

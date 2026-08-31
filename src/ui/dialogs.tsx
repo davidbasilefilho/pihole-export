@@ -317,7 +317,7 @@ export function HelpDialog(props: { readonly onClose: () => void }) {
             Tab / Shift+Tab traverse every control. Mouse click follows the same focus state.
           </text>
           <text>↑/↓, j/k navigate · Enter inspect/activate · mouse wheel scrolls lists.</text>
-          <text>/ search · s sort · a aggregate · l live · x refine · e export · p presets.</text>
+          <text>/ search · s sort · a aggregate · x refine · e export · p presets.</text>
           <text>f filters · r rerun · ? help · Esc back/cancel · q quit.</text>
           <text>Ctrl+Space opens Pi-hole suggestions while editing a supported filter.</text>
         </box>

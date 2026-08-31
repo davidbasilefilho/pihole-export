@@ -15,9 +15,7 @@ export function FilterScreen(props: {
   readonly setFilters: SetStoreFunction<Mutable<FilterForm>>;
   readonly focus: number;
   readonly busy: boolean;
-  readonly live: boolean;
   readonly onFocus: (index: number) => void;
-  readonly onLive: () => void;
   readonly onPresets: () => void;
   readonly onSubmit: () => void;
 }) {
@@ -92,23 +90,16 @@ export function FilterScreen(props: {
               onPress={() => props.setFilters("disk", !props.filters.disk)}
             />
             <ActionButton
-              label={props.live ? "LIVE: ON" : "LIVE: OFF"}
-              focused={props.focus === 12}
-              tone={props.live ? "success" : "primary"}
-              onFocus={() => props.onFocus(12)}
-              onPress={props.onLive}
-            />
-            <ActionButton
               label="PRESETS"
-              focused={props.focus === 13}
-              onFocus={() => props.onFocus(13)}
+              focused={props.focus === 12}
+              onFocus={() => props.onFocus(12)}
               onPress={props.onPresets}
             />
             <ActionButton
-              label={props.busy ? "QUERYING…" : props.live ? "START LIVE" : "FETCH QUERIES"}
-              focused={props.focus === 14}
+              label={props.busy ? "QUERYING…" : "FETCH QUERIES"}
+              focused={props.focus === 13}
               tone="primary"
-              onFocus={() => props.onFocus(14)}
+              onFocus={() => props.onFocus(13)}
               onPress={props.onSubmit}
             />
           </box>

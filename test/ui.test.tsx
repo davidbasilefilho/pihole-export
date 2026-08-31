@@ -82,7 +82,7 @@ const initialFilters: FilterForm = {
 
 function FilterHarness(props: { width: number }) {
   const [filters, setFilters] = createStore({ ...initialFilters })
-  return <box width="100%" height="100%"><FilterScreen width={props.width} filters={filters} setFilters={setFilters} focus={0} busy={false} live={false} onFocus={() => {}} onLive={() => {}} onPresets={() => {}} onSubmit={() => {}} /></box>
+  return <box width="100%" height="100%"><FilterScreen width={props.width} filters={filters} setFilters={setFilters} focus={0} busy={false} onFocus={() => {}} onPresets={() => {}} onSubmit={() => {}} /></box>
 }
 
 test("filter layout groups scan cleanly at wide and narrow terminal sizes", async () => {

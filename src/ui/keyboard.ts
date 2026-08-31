@@ -14,7 +14,6 @@ export interface WorkbenchKeyboard {
   readonly moveFilterFocus: (delta: number) => void;
   readonly filterFocus: () => number;
   readonly toggleDisk: () => void;
-  readonly toggleLiveSetting: () => void;
   readonly openSuggestions: () => void;
   readonly openPresets: () => void;
   readonly submitFilters: () => void;
@@ -71,10 +70,8 @@ export const useWorkbenchKeyboard = (actions: WorkbenchKeyboard) =>
       else if (key.ctrl && key.name === "space") actions.openSuggestions();
       else if (actions.filterFocus() === 11 && ["space", "return"].includes(key.name))
         actions.toggleDisk();
-      else if (actions.filterFocus() === 12 && ["space", "return"].includes(key.name))
-        actions.toggleLiveSetting();
-      else if (actions.filterFocus() === 13 && key.name === "return") actions.openPresets();
-      else if (actions.filterFocus() === 14 && key.name === "return") actions.submitFilters();
+      else if (actions.filterFocus() === 12 && key.name === "return") actions.openPresets();
+      else if (actions.filterFocus() === 13 && key.name === "return") actions.submitFilters();
       return;
     }
     if (current === "results") {
@@ -88,12 +85,11 @@ export const useWorkbenchKeyboard = (actions: WorkbenchKeyboard) =>
       else if (key.name === "/") actions.resultAction(0);
       else if (key.name === "s") actions.resultAction(1);
       else if (key.name === "a") actions.resultAction(2);
-      else if (key.name === "l") actions.resultAction(3);
-      else if (key.name === "x") actions.resultAction(4);
-      else if (key.name === "e") actions.resultAction(5);
-      else if (key.name === "p") actions.resultAction(6);
-      else if (key.name === "f" || key.name === "escape") actions.resultAction(7);
-      else if (key.name === "?") actions.resultAction(8);
+      else if (key.name === "x") actions.resultAction(3);
+      else if (key.name === "e") actions.resultAction(4);
+      else if (key.name === "p") actions.resultAction(5);
+      else if (key.name === "f" || key.name === "escape") actions.resultAction(6);
+      else if (key.name === "?") actions.resultAction(7);
       else if (key.name === "r") actions.rerun();
       else if (key.name === "q") actions.quit();
       return;

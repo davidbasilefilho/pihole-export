@@ -6,7 +6,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { analyzeQueries } from "../src/lib/analytics";
-import { deduplicateLiveRows, liveQuerySpec } from "../src/lib/api";
 import { parseHeadlessOptions } from "../src/lib/headless";
 import type { FilterForm, Query } from "../src/lib/model";
 import { loadPresets, savePresets, upsertPreset } from "../src/lib/presets";
@@ -44,34 +43,7 @@ const filters: FilterForm = {
   dnssec: "",
 };
 
-describe("live mode and analytics", () => {
-  test("deduplicates repeated live polls by stable query identity", () => {
-    const seen = new Set<string>();
-    const first = [makeQuery(1), makeQuery(2)];
-    expect(deduplicateLiveRows(seen, first).map((row) => row.id)).toEqual([1, 2]);
-    expect(deduplicateLiveRows(seen, [makeQuery(2), makeQuery(3)]).map((row) => row.id)).toEqual([
-      3,
-    ]);
-  });
-
-  test("advances the live query upper boundary on every poll and disables disk mode", () => {
-    const spec = {
-      from: 100,
-      until: 200,
-      disk: true,
-      domain: "",
-      clientIp: "",
-      clientName: "",
-      upstream: "",
-      type: "",
-      status: "",
-      reply: "",
-      dnssec: "",
-    };
-    expect(liveQuerySpec(spec, () => 500_000)).toMatchObject({ until: 501, disk: false });
-    expect(liveQuerySpec(spec, () => 700_000)).toMatchObject({ until: 701, disk: false });
-  });
-
+describe("analytics", () => {
   test("computes blocked/allowed totals and ranked aggregates", () => {
     const rows = [
       makeQuery(1, { domain: "blocked.example", status: "GRAVITY" }),

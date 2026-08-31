@@ -13,7 +13,7 @@ A responsive keyboard-and-mouse terminal workbench for querying and exporting co
 - Converts human local times in an explicit IANA timezone to exact Unix timestamps. Pi-hole's `from` boundary is inclusive and `until` is exclusive.
 - Preserves Pi-hole's first-page cursor and advances `start` in 10,000-row pages, so results and exports are never silently truncated.
 - Streams every matching row to CSV, JSONL, SQLite, or Parquet without retaining the complete export dataset.
-- Supports cancellable live polling with deduplication, aggregate analytics, local search/sort, and filter refinement from selected rows.
+- Supports aggregate analytics, local search/sort, and filter refinement from selected rows.
 - Saves named query presets containing filters only; authentication material is never included.
 - Provides `--headless` automation on the same query and export primitives used by the TUI.
 - Keeps credentials only in memory, clears form copies after login, never persists them, and closes sessions created by this app on exit.
