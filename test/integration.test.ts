@@ -1,14 +1,16 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test"
 import { HttpClient } from "@effect/platform"
 import { BunFileSystem } from "@effect/platform-bun"
-import { Cause, Effect, Exit, Fiber, Layer } from "effect"
+import { Database } from "bun:sqlite"
+import { Cause, Effect, Exit, Fiber, Layer, Stream } from "effect"
 import { mkdtempSync, readFileSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { authenticate, fetchAllQueries, fetchSuggestions, HttpLive } from "../src/api"
-import { writeCsv } from "../src/csv"
-import type { ConnectionForm } from "../src/model"
-import type { QuerySpec } from "../src/query"
+import { authenticate, fetchAllQueries, fetchSuggestions, HttpLive, streamQueryPages } from "../src/lib/api"
+import { exportQueryPages, writeCsv } from "../src/lib/export"
+import { runHeadless } from "../src/lib/headless"
+import { NetworkError, type ConnectionForm } from "../src/lib/model"
+import type { QuerySpec } from "../src/lib/query"
 
 const total = 10_005
 const pageStarts: Array<{ start: number; cursor: string | null }> = []
@@ -114,6 +116,38 @@ describe("Pi-hole HTTP lifecycle", () => {
     expect(readFileSync(path, "utf8").split("\r\n")).toHaveLength(total + 2)
   }, 15_000)
 
+  test("streams complete CSV, JSONL, SQLite, and Parquet exports from the page primitive", async () => {
+    const connection = await Effect.runPromise(authenticate(baseUrl, passwordForm("correct")).pipe(Effect.provide(HttpLive)))
+    for (const format of ["csv", "jsonl", "sqlite", "parquet"] as const) {
+      const path = join(temp, `streamed.${format}`)
+      const result = await Effect.runPromise(exportQueryPages(path, format, streamQueryPages(connection, spec)).pipe(Effect.provide(Live)))
+      expect(result.count).toBe(total)
+      if (format === "csv") expect(readFileSync(path, "utf8").split("\r\n")).toHaveLength(total + 2)
+      if (format === "jsonl") expect(readFileSync(path, "utf8").trimEnd().split("\n")).toHaveLength(total)
+      if (format === "sqlite") {
+        const database = new Database(path, { readonly: true })
+        expect((database.query("SELECT count(*) AS count FROM queries").get() as { count: number }).count).toBe(total)
+        database.close()
+      }
+      if (format === "parquet") {
+        const bytes = readFileSync(path)
+        expect(bytes.subarray(0, 4).toString()).toBe("PAR1")
+        expect(bytes.subarray(-4).toString()).toBe("PAR1")
+      }
+    }
+  }, 30_000)
+
+  test("runs headless automation on the same query/export primitives", async () => {
+    const path = join(temp, "headless.jsonl")
+    const result = await Effect.runPromise(runHeadless([
+      "--headless", "--host", baseUrl, "--auth", "password", "--from", "1970-01-01 00:00:01",
+      "--until", "2033-05-18 03:33:20", "--timezone", "UTC", "--output", path, "--format", "jsonl",
+    ], { PIHOLE_PASSWORD: "correct" }).pipe(Effect.provide(Live)))
+    expect(result.count).toBe(total)
+    expect(readFileSync(path, "utf8").trimEnd().split("\n")).toHaveLength(total)
+    expect(readFileSync(path, "utf8")).not.toContain("correct")
+  }, 15_000)
+
   test("reports network and write failures as typed failures", async () => {
     const network = await Effect.runPromiseExit(authenticate("http://127.0.0.1:1", passwordForm("correct")).pipe(Effect.provide(HttpLive)))
     expect(Exit.isFailure(network)).toBeTrue()
@@ -122,6 +156,25 @@ describe("Pi-hole HTTP lifecycle", () => {
     const write = await Effect.runPromiseExit(writeCsv(temp, [makeQuery(1)]).pipe(Effect.provide(BunFileSystem.layer)))
     expect(Exit.isFailure(write)).toBeTrue()
     if (Exit.isFailure(write)) expect(Cause.pretty(write.cause)).toContain("WriteError")
+
+    const streamed = await Effect.runPromiseExit(exportQueryPages(
+      join(temp, "failed.jsonl"), "jsonl", Stream.fail(new NetworkError({ message: "stream failed" })),
+    ).pipe(Effect.provide(BunFileSystem.layer)))
+    expect(Exit.isFailure(streamed)).toBeTrue()
+    if (Exit.isFailure(streamed)) expect(Cause.pretty(streamed.cause)).toContain("NetworkError")
+  })
+
+  test("streaming export remains interruptible between pages", async () => {
+    const path = join(temp, "cancelled.csv")
+    const pages = Stream.concat(
+      Stream.succeed({ queries: [makeQuery(1)], cursor: null, recordsFiltered: 2 }),
+      Stream.never,
+    )
+    const fiber = Effect.runFork(exportQueryPages(path, "csv", pages).pipe(Effect.provide(BunFileSystem.layer)))
+    await Bun.sleep(20)
+    await Effect.runPromise(Fiber.interrupt(fiber))
+    expect(Exit.isFailure(await Effect.runPromise(Fiber.await(fiber)))).toBeTrue()
+    expect(readFileSync(path, "utf8")).toContain("host-1.example")
   })
 
   test("Effect cancellation interrupts in-flight HTTP work", async () => {

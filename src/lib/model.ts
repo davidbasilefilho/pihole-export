@@ -31,6 +31,21 @@ export const FilterForm = Schema.Struct({
 });
 export type FilterForm = typeof FilterForm.Type;
 
+export const QueryPreset = Schema.Struct({
+  name: Schema.NonEmptyTrimmedString,
+  filters: FilterForm,
+});
+export type QueryPreset = typeof QueryPreset.Type;
+
+export const PresetFile = Schema.Struct({
+  version: Schema.Literal(1),
+  presets: Schema.Array(QueryPreset),
+});
+export type PresetFile = typeof PresetFile.Type;
+
+export const ExportFormat = Schema.Literal("csv", "jsonl", "sqlite", "parquet");
+export type ExportFormat = typeof ExportFormat.Type;
+
 export const Session = Schema.Struct({
   valid: Schema.Boolean,
   totp: Schema.Boolean,
@@ -111,5 +126,14 @@ export class WriteError extends Data.TaggedError("WriteError")<{
   readonly path: string;
   readonly message: string;
 }> {}
+export class PresetError extends Data.TaggedError("PresetError")<{ readonly message: string }> {}
+export class CliError extends Data.TaggedError("CliError")<{ readonly message: string }> {}
 
-export type AppError = ValidationError | NetworkError | ApiError | DecodeError | WriteError;
+export type AppError =
+  | ValidationError
+  | NetworkError
+  | ApiError
+  | DecodeError
+  | WriteError
+  | PresetError
+  | CliError;

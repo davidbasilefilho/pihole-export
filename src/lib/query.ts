@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 
-import { ConnectionForm, FilterForm, ValidationError } from "./model";
+import { ConnectionForm, FilterForm, Query, ValidationError } from "./model";
 import { localToEpochSeconds } from "./time";
 
 export interface QuerySpec {
@@ -76,10 +76,75 @@ export const serializeQuery = (spec: QuerySpec, start = 0, cursor?: number, leng
   return params;
 };
 
-export const defaultFilename = (spec: QuerySpec) => {
+export const defaultFilename = (spec: QuerySpec, extension = "csv") => {
   const iso = (seconds: number) => new Date(seconds * 1000).toISOString().replace(/[:.]/g, "-");
   const suffix = textFilters.flatMap((key) =>
     spec[key].trim() === "" ? [] : [`${key}-${spec[key].replace(/[^a-z0-9*.-]+/gi, "_")}`],
   );
-  return [`pihole`, iso(spec.from), iso(spec.until), ...suffix].join("_") + ".csv";
+  return [`pihole`, iso(spec.from), iso(spec.until), ...suffix].join("_") + `.${extension}`;
 };
+
+export type ResultSort = "time-desc" | "time-asc" | "domain" | "client" | "status";
+
+export const searchAndSortQueries = (
+  rows: ReadonlyArray<Query>,
+  search: string,
+  sort: ResultSort,
+) => {
+  const needle = search.trim().toLocaleLowerCase();
+  const filtered =
+    needle === ""
+      ? [...rows]
+      : rows.filter((row) =>
+          [
+            row.domain,
+            row.client.ip,
+            row.client.name,
+            row.type,
+            row.status,
+            row.reply.type,
+            row.upstream,
+            row.dnssec,
+          ].some((value) => value?.toLocaleLowerCase().includes(needle)),
+        );
+  const text = (value: string | null) => value ?? "";
+  filtered.sort((left, right) => {
+    switch (sort) {
+      case "time-asc":
+        return left.time - right.time;
+      case "domain":
+        return left.domain.localeCompare(right.domain) || right.time - left.time;
+      case "client":
+        return text(left.client.name ?? left.client.ip).localeCompare(
+          text(right.client.name ?? right.client.ip),
+        );
+      case "status":
+        return text(left.status).localeCompare(text(right.status)) || right.time - left.time;
+      case "time-desc":
+        return right.time - left.time;
+    }
+  });
+  return filtered;
+};
+
+export type RefinableField = "domain" | "clientIp" | "clientName" | "upstream" | "type" | "status";
+
+export const refineFiltersFromQuery = (
+  filters: FilterForm,
+  row: Query,
+  field: RefinableField,
+): FilterForm => ({
+  ...filters,
+  [field]:
+    field === "domain"
+      ? row.domain
+      : field === "clientIp"
+        ? row.client.ip
+        : field === "clientName"
+          ? (row.client.name ?? "")
+          : field === "upstream"
+            ? (row.upstream ?? "")
+            : field === "type"
+              ? row.type
+              : (row.status ?? ""),
+});

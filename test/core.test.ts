@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test"
 import { Effect, Exit, Schema } from "effect"
-import { toCsv } from "../src/csv"
-import { QueryResponse } from "../src/model"
-import { baseUrl, needsHeavyQueryConfirmation, serializeQuery, type QuerySpec } from "../src/query"
-import { localToEpochSeconds } from "../src/time"
+import { toCsv } from "../src/lib/export"
+import { QueryResponse } from "../src/lib/model"
+import { baseUrl, needsHeavyQueryConfirmation, serializeQuery, type QuerySpec } from "../src/lib/query"
+import { localToEpochSeconds } from "../src/lib/time"
 
 const spec: QuerySpec = {
   from: 1_000,

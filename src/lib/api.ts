@@ -4,7 +4,7 @@ import {
   HttpClientRequest,
   HttpClientResponse,
 } from "@effect/platform";
-import { Effect, Schema } from "effect";
+import { Chunk, Duration, Effect, Option, Schedule, Schema, Stream } from "effect";
 
 import {
   ApiError,
@@ -142,33 +142,102 @@ export const fetchSuggestions = (connection: AuthenticatedConnection) =>
     ),
   ).pipe(Effect.map((response): Suggestions => response.suggestions));
 
-const fetchPage = (
+export interface QueryPage {
+  readonly queries: ReadonlyArray<Query>;
+  readonly cursor: number | null;
+  readonly recordsFiltered: number;
+}
+
+export const fetchQueryPage = (
   connection: AuthenticatedConnection,
   spec: QuerySpec,
   start: number,
   cursor?: number,
+  length = 10_000,
 ) => {
-  const url = `${connection.baseUrl}/api/queries?${serializeQuery(spec, start, cursor).toString()}`;
+  const url = `${connection.baseUrl}/api/queries?${serializeQuery(spec, start, cursor, length).toString()}`;
   return expect(QueryResponse, authenticated(HttpClientRequest.get(url), connection.session.sid));
 };
 
+interface PageState {
+  readonly start: number;
+  readonly cursor?: number;
+}
+
+export const streamQueryPages = (connection: AuthenticatedConnection, spec: QuerySpec) =>
+  Stream.paginateEffect<
+    PageState,
+    QueryPage,
+    ApiError | DecodeError | NetworkError,
+    HttpClient.HttpClient
+  >({ start: 0 }, (state) =>
+    fetchQueryPage(connection, spec, state.start, state.cursor).pipe(
+      Effect.map((page) => {
+        const nextStart = state.start + page.queries.length;
+        const cursor = state.cursor ?? page.cursor ?? undefined;
+        const done =
+          page.queries.length === 0 ||
+          page.queries.length < 10_000 ||
+          nextStart >= page.recordsFiltered;
+        const output: QueryPage = {
+          queries: page.queries,
+          cursor: page.cursor,
+          recordsFiltered: page.recordsFiltered,
+        };
+        const nextState: PageState =
+          cursor === undefined ? { start: nextStart } : { start: nextStart, cursor };
+        return [output, done ? Option.none<PageState>() : Option.some(nextState)] as const;
+      }),
+    ),
+  );
+
 export const fetchAllQueries = (connection: AuthenticatedConnection, spec: QuerySpec) =>
-  Effect.gen(function* () {
-    const rows: Array<Query> = [];
-    let start = 0;
-    let cursor: number | undefined;
-    while (true) {
-      const page = yield* fetchPage(connection, spec, start, cursor);
-      if (cursor === undefined && page.cursor !== null) cursor = page.cursor;
-      rows.push(...page.queries);
-      start += page.queries.length;
-      if (
-        page.queries.length === 0 ||
-        page.queries.length < 10_000 ||
-        start >= page.recordsFiltered
-      )
-        return rows;
-    }
-  });
+  streamQueryPages(connection, spec).pipe(
+    Stream.flatMap((page) => Stream.fromIterable(page.queries)),
+    Stream.runCollect,
+    Effect.map(Chunk.toReadonlyArray),
+  );
+
+export const deduplicateLiveRows = (seen: Set<string>, rows: ReadonlyArray<Query>) => {
+  const fresh: Array<Query> = [];
+  for (const row of rows) {
+    const key = `${row.id}:${row.time}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    fresh.push(row);
+  }
+  return fresh;
+};
+
+export const liveQuerySpec = (spec: QuerySpec, now: () => number = Date.now): QuerySpec => ({
+  ...spec,
+  disk: false,
+  until: Math.max(spec.from + 1, Math.floor(now() / 1000) + 1),
+});
+
+export const pollLiveQueries = (
+  connection: AuthenticatedConnection,
+  spec: QuerySpec,
+  options: {
+    readonly interval?: Duration.DurationInput;
+    readonly pageLength?: number;
+    readonly now?: () => number;
+  } = {},
+) => {
+  const interval = options.interval ?? "2 seconds";
+  const pageLength = options.pageLength ?? 1_000;
+  return Stream.repeatEffectWithSchedule(
+    Effect.suspend(() =>
+      fetchQueryPage(connection, liveQuerySpec(spec, options.now), 0, undefined, pageLength),
+    ),
+    Schedule.spaced(interval),
+  ).pipe(
+    Stream.mapAccum(new Set<string>(), (seen, page) => [
+      seen,
+      deduplicateLiveRows(seen, page.queries),
+    ]),
+    Stream.mapConcat((rows) => rows),
+  );
+};
 
 export const HttpLive = FetchHttpClient.layer;

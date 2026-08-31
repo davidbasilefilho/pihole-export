@@ -11,6 +11,7 @@
         "@opentui/solid": "^0.5.9",
         "@tuiparts/solid": "^0.0.6",
         "effect": "^3.22.1",
+        "hyparquet-writer": "^0.12.3",
         "solid-js": "^1.9.15",
       },
       "devDependencies": {
@@ -366,6 +367,10 @@
     "hasown": ["hasown@2.0.4", "", { "dependencies": { "function-bind": "^1.1.2" } }, "sha512-T2UbfbBEF32wiepXIsMlTW9+dDYC6wMh/t/vYA4tuOMKqWz/n3vr1NFSxQiyP+zk2mXsoMA/i/7qV6LKut1t1A=="],
 
     "html-entities": ["html-entities@2.3.3", "", {}, "sha512-DV5Ln36z34NNTDgnz0EWGBLZENelNAtkiFA4kyNOG2tDI6Mz1uSWiq1wAKdyjnJwyDiDO7Fa2SO1CTxPXL8VxA=="],
+
+    "hyparquet": ["hyparquet@1.25.0", "", {}, "sha512-isJx+RplYT3aJc5yhaG5CeOZSBJecHZgYsUi7NE6P/nAbxxA0hZcyul0tUsWCQLc9QXYQ2uFyYBrk61JbJO0cg=="],
+
+    "hyparquet-writer": ["hyparquet-writer@0.12.3", "", { "dependencies": { "hyparquet": "1.25.0" } }, "sha512-0yaYJK5IqwYO7pnFuDarhDihilWVnx0C5QpphPU9B595EpdaUJdAzym6TphAD6iS324J4p8WGnVhIcsYxVZvwg=="],
 
     "is-core-module": ["is-core-module@2.16.2", "", { "dependencies": { "hasown": "^2.0.3" } }, "sha512-evOr8xfXKxE6qSR0hSXL2r3sd7ALj8+7jQEUvPYcm5sgZFdJ+AYzT6yNmJenvIYQBgIGwfwz08sL8zoL7yq2BA=="],
 

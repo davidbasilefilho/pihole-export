@@ -1,54 +1,78 @@
 /** @jsxImportSource @opentui/solid */
-import { FileSystem, HttpClient } from "@effect/platform";
-import { BunFileSystem } from "@effect/platform-bun";
-import { useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/solid";
-import { Button } from "@tuiparts/solid";
-import { Effect, Fiber, Layer, ManagedRuntime, Schema } from "effect";
-import { createSignal, For, Match, Show, Switch } from "solid-js";
+import { useRenderer, useTerminalDimensions } from "@opentui/solid";
+import { Effect, Fiber, Schema, Stream } from "effect";
+import { createMemo, createSignal, Match, Show, Switch } from "solid-js";
 import { createStore } from "solid-js/store";
 
+import { analyzeQueries } from "./lib/analytics";
 import {
   authenticate,
-  AuthenticatedConnection,
+  type AuthenticatedConnection,
   fetchAllQueries,
   fetchSuggestions,
-  HttpLive,
   logout,
-} from "./api";
-import { writeCsv } from "./csv";
+  pollLiveQueries,
+  streamQueryPages,
+} from "./lib/api";
+import { exportQueryPages } from "./lib/export";
 import {
-  AuthMethod,
+  type AuthMethod,
   ConnectionForm,
+  type ExportFormat,
   FilterForm,
-  Query,
-  Suggestions,
+  type Query,
+  type QueryPreset,
+  type Suggestions,
   ValidationError,
-} from "./model";
+} from "./lib/model";
+import {
+  defaultPresetPath,
+  loadPresets,
+  removePreset,
+  savePresets,
+  upsertPreset,
+} from "./lib/presets";
 import {
   baseUrl,
   defaultFilename,
   needsHeavyQueryConfirmation,
-  QuerySpec,
+  type QuerySpec,
+  refineFiltersFromQuery,
+  type RefinableField,
+  type ResultSort,
+  searchAndSortQueries,
   toQuerySpec,
-} from "./query";
-import { theme } from "./theme";
-import { defaultRange } from "./time";
+} from "./lib/query";
+import { runtime, type AppServices } from "./lib/runtime";
+import { defaultRange } from "./lib/time";
+import {
+  ConfirmDialog,
+  ExportDialog,
+  HelpDialog,
+  InspectDialog,
+  PresetDialog,
+  SearchDialog,
+  SuggestionDialog,
+} from "./ui/dialogs";
+import {
+  connectControls,
+  type ConnectFocus,
+  filterControlCount,
+  moveCyclic,
+  moveIndex,
+  resultActions,
+  type Screen,
+} from "./ui/focus";
+import { useWorkbenchKeyboard } from "./ui/keyboard";
+import { KeyBar } from "./ui/primitives";
+import { ConnectionScreen } from "./ui/screens/ConnectionScreen";
+import { FilterScreen } from "./ui/screens/FilterScreen";
+import { ResultsScreen } from "./ui/screens/ResultsScreen";
+import { theme } from "./ui/theme";
 
-type Screen =
-  | "connect"
-  | "filters"
-  | "results"
-  | "inspect"
-  | "help"
-  | "confirm"
-  | "export"
-  | "suggestions";
-type SuggestionField = keyof Suggestions;
-type ConnectFocus = "host" | "scheme" | "port" | "auth" | "secret" | "totp" | "connect";
 type Mutable<T> = { -readonly [K in keyof T]: T[K] };
-type AppServices = HttpClient.HttpClient | FileSystem.FileSystem;
+type SuggestionField = keyof Suggestions;
 
-const runtime = ManagedRuntime.make(Layer.merge(HttpLive, BunFileSystem.layer));
 const emptySuggestions: Suggestions = {
   domain: [],
   client_ip: [],
@@ -60,79 +84,13 @@ const emptySuggestions: Suggestions = {
   dnssec: [],
 };
 
-const fieldBg = (focused: boolean) => (focused ? theme.bgHighlight : theme.bgStripe);
-
-function Field(props: {
-  label: string;
-  value: string;
-  focused: boolean;
-  placeholder?: string;
-  secret?: boolean;
-  width?: number;
-  minWidth?: number;
-  flexGrow?: number;
-  onInput: (value: string) => void;
-  onSubmit?: () => void;
-}) {
-  return (
-    <box
-      flexDirection="column"
-      height={2}
-      flexGrow={props.flexGrow ?? 1}
-      minWidth={props.minWidth ?? 18}
-      {...(props.width === undefined ? {} : { width: props.width })}>
-      <text fg={props.focused ? theme.cyan : theme.fg}>{props.label}</text>
-      <box backgroundColor={fieldBg(props.focused)} paddingLeft={1} height={1}>
-        <input
-          value={props.value}
-          focused={props.focused}
-          placeholder={props.placeholder ?? ""}
-          width="100%"
-          textColor={props.secret ? fieldBg(props.focused) : theme.fg}
-          focusedTextColor={props.secret ? fieldBg(props.focused) : theme.fg}
-          cursorColor={theme.blue}
-          placeholderColor={theme.muted}
-          onInput={(next) => props.onInput(next)}
-          onSubmit={() => props.onSubmit?.()}
-        />
-        <text
-          position="absolute"
-          left={1}
-          fg={theme.fg}
-          content={props.secret ? "•".repeat(props.value.length) : ""}
-        />
-      </box>
-    </box>
-  );
-}
-
-function ActionButton(props: { label: string; focused?: boolean; onPress: () => void }) {
-  return (
-    <Button
-      onPress={props.onPress}
-      backgroundColor={props.focused ? theme.blue : theme.bgHighlight}>
-      <text fg={props.focused ? theme.bgDark : theme.fg}> {props.label} </text>
-    </Button>
-  );
-}
-
-function KeyBar(props: { items: ReadonlyArray<readonly [string, string]> }) {
-  return (
-    <box height={1} width="100%" flexDirection="row" backgroundColor={theme.bgHighlight}>
-      <For each={props.items}>
-        {([key, label]) => (
-          <box flexDirection="row" paddingRight={1} gap={1}>
-            <text fg={theme.yellow}>{key}</text>
-            <text fg={theme.muted}>{label} │</text>
-          </box>
-        )}
-      </For>
-    </box>
-  );
-}
-
-const truncate = (value: string, width: number) =>
-  value.length > width ? value.slice(0, Math.max(0, width - 1)) + "…" : value.padEnd(width);
+const sortOrder: ReadonlyArray<ResultSort> = [
+  "time-desc",
+  "time-asc",
+  "domain",
+  "client",
+  "status",
+];
 
 export function App() {
   const renderer = useRenderer();
@@ -146,14 +104,6 @@ export function App() {
   const [authMethod, setAuthMethod] = createSignal<AuthMethod>("password");
   const [secret, setSecret] = createSignal("");
   const [totp, setTotp] = createSignal("");
-  const connectionForm = (): Mutable<ConnectionForm> => ({
-    host: host(),
-    scheme: scheme(),
-    port: port(),
-    authMethod: authMethod(),
-    secret: secret(),
-    totp: totp(),
-  });
   const [filters, setFilters] = createStore<Mutable<FilterForm>>({
     ...range,
     disk: false,
@@ -166,23 +116,40 @@ export function App() {
     reply: "",
     dnssec: "",
   });
+
   const [screen, setScreen] = createSignal<Screen>("connect");
-  const [connectFocus, setConnectFocus] = createSignal<ConnectFocus>("host");
   const [returnScreen, setReturnScreen] = createSignal<Screen>("results");
-  const [focus, setFocus] = createSignal(0);
+  const [connectFocus, setConnectFocus] = createSignal<ConnectFocus>("host");
+  const [filterFocus, setFilterFocus] = createSignal(0);
+  const [resultFocus, setResultFocus] = createSignal(0);
+  const [resultControlMode, setResultControlMode] = createSignal(false);
+  const [dialogFocus, setDialogFocus] = createSignal(0);
   const [connection, setConnection] = createSignal<AuthenticatedConnection | null>(null);
   const [suggestions, setSuggestions] = createSignal<Suggestions>(emptySuggestions);
   const [suggestionField, setSuggestionField] = createSignal<SuggestionField | null>(null);
   const [suggestionIndex, setSuggestionIndex] = createSignal(0);
   const [rows, setRows] = createSignal<ReadonlyArray<Query>>([]);
   const [selected, setSelected] = createSignal(0);
+  const [inspectTarget, setInspectTarget] = createSignal<Query | null>(null);
   const [busy, setBusy] = createSignal(false);
   const [message, setMessage] = createSignal("");
   const [pendingSpec, setPendingSpec] = createSignal<QuerySpec | null>(null);
   const [activeSpec, setActiveSpec] = createSignal<QuerySpec | null>(null);
+  const [live, setLive] = createSignal(false);
+  const [aggregate, setAggregate] = createSignal(false);
+  const [sort, setSort] = createSignal<ResultSort>("time-desc");
+  const [search, setSearch] = createSignal("");
+  const [searchDraft, setSearchDraft] = createSignal("");
   const [exportPath, setExportPath] = createSignal("");
+  const [exportFormat, setExportFormat] = createSignal<ExportFormat>("csv");
+  const [presets, setPresets] = createSignal<ReadonlyArray<QueryPreset>>([]);
+  const [presetName, setPresetName] = createSignal("");
   let cancel: (() => void) | undefined;
   let runId = 0;
+
+  const visibleRows = createMemo(() => searchAndSortQueries(rows(), search(), sort()));
+  const analytics = createMemo(() => analyzeQueries(visibleRows()));
+  const selectedRow = () => visibleRows()[selected()];
 
   const runEffect = <A, E>(
     effect: Effect.Effect<A, E, AppServices>,
@@ -198,15 +165,20 @@ export function App() {
         Effect.catchAll((error) =>
           Effect.sync(() => setMessage(error instanceof Error ? error.message : String(error))),
         ),
-        Effect.ensuring(
-          Effect.sync(() => {
-            if (runId === id) setBusy(false);
-          }),
-        ),
+        Effect.ensuring(Effect.sync(() => id === runId && setBusy(false))),
       ),
     );
     cancel = () => Effect.runFork(Fiber.interruptFork(fiber));
   };
+
+  const connectionForm = (): Mutable<ConnectionForm> => ({
+    host: host(),
+    scheme: scheme(),
+    port: port(),
+    authMethod: authMethod(),
+    secret: secret(),
+    totp: totp(),
+  });
 
   const connect = () => {
     const parsed = Schema.decodeUnknown(ConnectionForm)(connectionForm()).pipe(
@@ -226,7 +198,7 @@ export function App() {
         setSecret("");
         setTotp("");
         setScreen("filters");
-        setFocus(0);
+        setFilterFocus(0);
         setMessage(`Connected · session valid ${authenticated.session.validity}s`);
       },
     );
@@ -237,9 +209,20 @@ export function App() {
     if (active === null) return;
     setScreen("results");
     setSelected(0);
+    setActiveSpec(spec);
+    if (live()) {
+      setRows([]);
+      runEffect(
+        pollLiveQueries(active, spec).pipe(
+          Stream.runForEach((row) => Effect.sync(() => setRows((current) => [row, ...current]))),
+        ),
+        () => undefined,
+      );
+      setMessage("Live query mode started");
+      return;
+    }
     runEffect(fetchAllQueries(active, spec), (result) => {
       setRows(result);
-      setActiveSpec(spec);
       setMessage(`${result.length.toLocaleString()} queries`);
     });
   };
@@ -253,21 +236,119 @@ export function App() {
       (spec) => {
         if (needsHeavyQueryConfirmation(spec)) {
           setPendingSpec(spec);
+          setDialogFocus(0);
           setScreen("confirm");
         } else executeQuery(spec);
       },
     );
 
+  const stopWork = (text = "Cancelled") => {
+    cancel?.();
+    runId += 1;
+    setBusy(false);
+    setLive(false);
+    setMessage(text);
+  };
+
+  const startOrStopLive = () => {
+    if (busy() && live()) return stopWork("Live mode stopped");
+    const spec = activeSpec();
+    if (spec === null) {
+      setLive(true);
+      setScreen("filters");
+      setFilterFocus(14);
+      setMessage("Configure filters, then start live mode");
+      return;
+    }
+    setLive(true);
+    executeQuery(spec);
+  };
+
+  const openExport = () => {
+    const spec = activeSpec();
+    if (spec === null) return setMessage("Run a query before exporting");
+    setExportPath(defaultFilename(spec, exportFormat()));
+    setDialogFocus(1);
+    setScreen("export");
+  };
+
   const exportRows = () => {
+    const active = connection();
+    const spec = activeSpec();
     const path = exportPath().trim();
+    if (active === null || spec === null) return;
     if (path === "") return setMessage("Enter an export destination");
-    runEffect(writeCsv(path, rows()), (result) => {
+    if (busy() && live()) stopWork("Live mode stopped for export");
+    runEffect(exportQueryPages(path, exportFormat(), streamQueryPages(active, spec)), (result) => {
       setScreen("results");
       setMessage(`Exported ${result.count.toLocaleString()} rows → ${result.path}`);
     });
   };
 
+  const openPresets = () => {
+    if (busy() && live()) stopWork("Live mode stopped");
+    runEffect(loadPresets(defaultPresetPath()), (loaded) => {
+      setPresets(loaded);
+      setPresetName("");
+      setDialogFocus(0);
+      setScreen("presets");
+    });
+  };
+
+  const saveCurrentPreset = () => {
+    if (presetName().trim() === "") return setMessage("Enter a preset name");
+    const next = upsertPreset(presets(), presetName(), filters);
+    runEffect(savePresets(defaultPresetPath(), next), (saved) => {
+      setPresets(saved);
+      setMessage(`Saved preset “${presetName().trim()}”`);
+      setPresetName("");
+      setDialogFocus(0);
+    });
+  };
+
+  const deletePreset = (index: number) => {
+    const preset = presets()[index];
+    if (preset === undefined) return;
+    const next = removePreset(presets(), preset.name);
+    runEffect(savePresets(defaultPresetPath(), next), (saved) => {
+      setPresets(saved);
+      setDialogFocus(Math.min(dialogFocus(), Math.max(0, 2 + saved.length * 2)));
+      setMessage(`Deleted preset “${preset.name}”`);
+    });
+  };
+
+  const applyPreset = (index: number) => {
+    const preset = presets()[index];
+    if (preset === undefined) return;
+    setFilters({ ...preset.filters });
+    setScreen("filters");
+    setFilterFocus(0);
+    setMessage(`Loaded preset “${preset.name}”`);
+  };
+
+  const refine = (field: RefinableField) => {
+    const row = screen() === "inspect" ? inspectTarget() : selectedRow();
+    if (row === undefined || row === null) return;
+    setFilters({ ...refineFiltersFromQuery(filters, row, field) });
+    setScreen("filters");
+    setFilterFocus(
+      field === "domain"
+        ? 3
+        : field === "clientIp"
+          ? 4
+          : field === "clientName"
+            ? 5
+            : field === "upstream"
+              ? 6
+              : field === "type"
+                ? 7
+                : 8,
+    );
+    setMessage(`Filter refined from selected ${field}`);
+  };
+
   const quit = () => {
+    cancel?.();
     const active = connection();
     const done = Effect.sync(() => renderer.destroy());
     runtime.runFork(
@@ -281,6 +362,12 @@ export function App() {
     );
   };
 
+  const selectAuth = (method: AuthMethod) => {
+    setAuthMethod(method);
+    setSecret("");
+    setTotp("");
+  };
+
   const openSuggestions = () => {
     const mapping: Partial<Record<number, SuggestionField>> = {
       3: "domain",
@@ -292,533 +379,273 @@ export function App() {
       9: "reply",
       10: "dnssec",
     };
-    const field = mapping[focus()];
+    const field = mapping[filterFocus()];
     if (field === undefined || suggestions()[field].length === 0)
       return setMessage(
         "No suggestions for this field; manual input and * wildcards are supported",
       );
     setSuggestionField(field);
     setSuggestionIndex(0);
+    setDialogFocus(0);
     setScreen("suggestions");
   };
 
   const applySuggestion = () => {
     const field = suggestionField();
-    if (field === null) return;
-    const value = suggestions()[field][suggestionIndex()];
-    if (value === undefined) return;
-    switch (field) {
-      case "domain":
-        setFilters("domain", value);
-        break;
-      case "client_ip":
-        setFilters("clientIp", value);
-        break;
-      case "client_name":
-        setFilters("clientName", value);
-        break;
-      case "upstream":
-        setFilters("upstream", value);
-        break;
-      case "type":
-        setFilters("type", value);
-        break;
-      case "status":
-        setFilters("status", value);
-        break;
-      case "reply":
-        setFilters("reply", value);
-        break;
-      case "dnssec":
-        setFilters("dnssec", value);
-        break;
-    }
+    const value = field === null ? undefined : suggestions()[field][suggestionIndex()];
+    if (field === null || value === undefined) return;
+    const keys: Record<SuggestionField, keyof Mutable<FilterForm>> = {
+      domain: "domain",
+      client_ip: "clientIp",
+      client_name: "clientName",
+      upstream: "upstream",
+      type: "type",
+      status: "status",
+      reply: "reply",
+      dnssec: "dnssec",
+    };
+    setFilters(keys[field], value);
     setScreen("filters");
   };
 
-  const selectAuth = (method: AuthMethod) => {
-    if (method === authMethod()) return;
-    setAuthMethod(method);
-    setSecret("");
-    setTotp("");
-  };
-
-  const cycleAuth = (delta: number) => {
-    const methods: ReadonlyArray<AuthMethod> = ["password", "session", "none"];
-    const index = methods.indexOf(authMethod());
-    selectAuth(methods[(index + delta + methods.length) % methods.length] ?? "password");
-  };
-
-  const connectControls = (): ReadonlyArray<ConnectFocus> =>
-    authMethod() === "password"
-      ? ["host", "scheme", "port", "auth", "secret", "totp", "connect"]
-      : authMethod() === "session"
-        ? ["host", "scheme", "port", "auth", "secret", "connect"]
-        : ["host", "scheme", "port", "auth", "connect"];
-
-  const moveConnectFocus = (delta: number) => {
-    const controls = connectControls();
-    const index = Math.max(0, controls.indexOf(connectFocus()));
-    setConnectFocus(controls[(index + delta + controls.length) % controls.length] ?? "host");
-  };
-
-  const connectionIsFocused = (target: ConnectFocus) =>
-    screen() === "connect" && connectFocus() === target;
-  const filterIsFocused = (index: number) => screen() === "filters" && focus() === index;
-
   const moveSelection = (delta: number) => {
-    if (rows().length === 0) return;
-    setSelected((value) => Math.max(0, Math.min(rows().length - 1, value + delta)));
+    setResultControlMode(false);
+    setSelected((value) => moveIndex(value, delta, visibleRows().length, false));
   };
 
-  useKeyboard((key) => {
-    const current = screen();
-    if (key.ctrl && key.name === "c") return quit();
-    if (current === "connect") {
-      if (key.name === "tab") {
-        key.preventDefault();
-        moveConnectFocus(key.shift ? -1 : 1);
-        return;
-      }
-      if (key.name === "escape") return quit();
-      if (
-        connectFocus() === "scheme" &&
-        (key.name === "left" ||
-          key.name === "right" ||
-          key.name === "space" ||
-          key.name === "return")
-      ) {
-        key.preventDefault();
-        setScheme(scheme() === "http" ? "https" : "http");
-        return;
-      }
-      if (
-        connectFocus() === "auth" &&
-        (key.name === "left" || key.name === "right" || key.name === "space")
-      ) {
-        key.preventDefault();
-        cycleAuth(key.name === "left" ? -1 : 1);
-        return;
-      }
-      if (connectFocus() === "connect" && key.name === "return") {
-        key.preventDefault();
-        connect();
-      }
-      return;
-    }
-    if (current === "filters") {
-      if (key.name === "tab") {
-        key.preventDefault();
-        setFocus((focus() + (key.shift ? 12 : 1)) % 13);
-        return;
-      }
-      if (key.name === "escape") return quit();
-      if (key.ctrl && key.name === "space") {
-        key.preventDefault();
-        openSuggestions();
-        return;
-      }
-      if (focus() === 11 && (key.name === "space" || key.name === "return")) {
-        key.preventDefault();
-        setFilters("disk", !filters.disk);
-        return;
-      }
-      if (focus() === 12 && key.name === "return") {
-        key.preventDefault();
-        submitFilters();
-      }
-      return;
-    }
-    if (current === "results") {
-      if (busy()) {
-        if (key.name === "escape") {
-          cancel?.();
-          setMessage("Cancelled");
-        } else if (key.name === "q") quit();
-        return;
-      }
-      if (key.name === "down" || key.name === "j") moveSelection(1);
-      else if (key.name === "up" || key.name === "k") moveSelection(-1);
-      else if (key.name === "return" && rows().length > 0) setScreen("inspect");
-      else if (key.name === "f") {
+  const inspect = () => {
+    const row = selectedRow();
+    if (row === undefined) return;
+    setInspectTarget(row);
+    setDialogFocus(0);
+    setScreen("inspect");
+  };
+
+  const cycleSort = () => setSort((current) => moveCyclic(sortOrder, current, 1));
+
+  const runResultAction = (index: number) => {
+    switch (resultActions[index]) {
+      case "SEARCH":
+        setSearchDraft(search());
+        setDialogFocus(0);
+        setScreen("search");
+        break;
+      case "SORT":
+        cycleSort();
+        setSelected(0);
+        break;
+      case "AGGREGATE":
+        setAggregate((value) => !value);
+        break;
+      case "LIVE":
+        startOrStopLive();
+        break;
+      case "REFINE":
+        inspect();
+        break;
+      case "EXPORT":
+        openExport();
+        break;
+      case "PRESETS":
+        setReturnScreen("results");
+        openPresets();
+        break;
+      case "FILTERS":
         setScreen("filters");
-        setFocus(0);
-      } else if (key.name === "r") {
-        const spec = activeSpec();
-        if (spec !== null) executeQuery(spec);
-      } else if (key.name === "e") {
-        const spec = activeSpec();
-        if (spec !== null) {
-          setExportPath(defaultFilename(spec));
-          setScreen("export");
-        }
-      } else if (key.name === "?") {
+        setFilterFocus(0);
+        break;
+      case "HELP":
         setReturnScreen("results");
         setScreen("help");
-      } else if (key.name === "escape") setScreen("filters");
-      else if (key.name === "q") quit();
-      return;
+        break;
     }
-    if (current === "suggestions") {
+  };
+
+  useWorkbenchKeyboard({
+    screen,
+    busy,
+    quit,
+    connectFocus,
+    moveConnectFocus: (delta) =>
+      setConnectFocus(moveCyclic(connectControls(authMethod()), connectFocus(), delta)),
+    toggleScheme: () => setScheme(scheme() === "http" ? "https" : "http"),
+    cycleAuth: (delta) => {
+      const methods: ReadonlyArray<AuthMethod> = ["password", "session", "none"];
+      selectAuth(moveCyclic(methods, authMethod(), delta));
+    },
+    connect,
+    filterFocus,
+    moveFilterFocus: (delta) => setFilterFocus(moveIndex(filterFocus(), delta, filterControlCount)),
+    toggleDisk: () => setFilters("disk", !filters.disk),
+    toggleLiveSetting: () => setLive((value) => !value),
+    openSuggestions,
+    openPresets,
+    submitFilters,
+    stopWork,
+    moveResultFocus: (delta) => {
+      setResultControlMode(true);
+      setResultFocus(moveIndex(resultFocus(), delta, resultActions.length));
+    },
+    moveSelection,
+    activateResult: () => (resultControlMode() ? runResultAction(resultFocus()) : inspect()),
+    resultAction: runResultAction,
+    rerun: () => {
+      const spec = activeSpec();
+      if (spec !== null) executeQuery(spec);
+    },
+    moveDialogFocus: (delta, count) => setDialogFocus(moveIndex(dialogFocus(), delta, count)),
+    moveSuggestion: (delta) => {
+      setDialogFocus(0);
       const field = suggestionField();
       const count = field === null ? 0 : suggestions()[field].length;
-      if (key.name === "down" || key.name === "j")
-        setSuggestionIndex((suggestionIndex() + 1) % Math.max(1, count));
-      else if (key.name === "up" || key.name === "k")
-        setSuggestionIndex((suggestionIndex() - 1 + Math.max(1, count)) % Math.max(1, count));
-      else if (key.name === "return") applySuggestion();
-      else if (key.name === "escape") setScreen("filters");
-      return;
-    }
-    if (current === "confirm") {
-      if (key.name === "return") {
-        const spec = pendingSpec();
-        if (spec !== null) executeQuery(spec);
-      } else if (key.name === "escape" || key.name === "n") setScreen("filters");
-      return;
-    }
-    if (current === "export") {
-      if (key.name === "escape") setScreen("results");
-      return;
-    }
-    if (key.name === "escape" || key.name === "q" || key.name === "return")
-      setScreen(returnScreen());
+      setSuggestionIndex(moveIndex(suggestionIndex(), delta, count));
+    },
+    applySuggestion: () => (dialogFocus() === 2 ? setScreen("filters") : applySuggestion()),
+    showFilters: () => setScreen("filters"),
+    acceptConfirm: () => {
+      if (dialogFocus() !== 0) return setScreen("filters");
+      const spec = pendingSpec();
+      if (spec !== null) executeQuery(spec);
+    },
+    showResults: () => setScreen("results"),
+    activateInspect: () =>
+      dialogFocus() === 0
+        ? setScreen("results")
+        : refine(refineActionsForKeyboard[dialogFocus() - 1] ?? "domain"),
+    activateSearch: () => {
+      if (dialogFocus() === 2) {
+        setSearch("");
+        setSearchDraft("");
+      } else if (dialogFocus() === 3) setScreen("results");
+      else {
+        setSearch(searchDraft());
+        setSelected(0);
+        setScreen("results");
+      }
+    },
+    cycleExportFormat: (delta) => {
+      if (dialogFocus() !== 0) return;
+      const formats: ReadonlyArray<ExportFormat> = ["csv", "jsonl", "sqlite", "parquet"];
+      setExportFormat(moveCyclic(formats, exportFormat(), delta));
+    },
+    exportRows: () => {
+      if (dialogFocus() === 3) setScreen("results");
+      else if (dialogFocus() !== 0) exportRows();
+    },
+    cancelExport: () => {
+      if (busy()) stopWork("Export cancelled");
+      setScreen("results");
+    },
+    presetControlCount: () => 3 + presets().length * 2,
+    activatePreset: () => {
+      if (dialogFocus() === 2) return setScreen(returnScreen());
+      if (dialogFocus() <= 1) return saveCurrentPreset();
+      const item = Math.floor((dialogFocus() - 3) / 2);
+      if ((dialogFocus() - 3) % 2 === 0) applyPreset(item);
+      else deletePreset(item);
+    },
+    closePreset: () => setScreen(returnScreen()),
+    closeOverlay: () => setScreen(returnScreen()),
   });
 
-  const visibleRows = () => {
-    const count = Math.max(1, dimensions().height - 5);
-    const start = Math.max(0, Math.min(selected() - Math.floor(count / 2), rows().length - count));
-    return rows()
-      .slice(start, start + count)
-      .map((row, offset) => ({ row, index: start + offset }));
-  };
-
-  const tableLine = (row: Query) => {
-    const width = dimensions().width;
-    const time = new Date(row.time * 1000).toLocaleString(undefined, { hour12: false });
-    const fixed = width >= 120 ? 91 : width >= 90 ? 69 : 48;
-    const domainWidth = Math.max(12, width - fixed);
-    const cells = [
-      truncate(time, 20),
-      truncate(row.domain, domainWidth),
-      truncate(row.client.name ?? row.client.ip, 18),
-      truncate(row.type, 7),
-    ];
-    if (width >= 90)
-      cells.push(truncate(row.status ?? "—", 12), truncate(row.reply.type ?? "—", 10));
-    if (width >= 120) cells.push(truncate(row.upstream ?? "—", 20));
-    return cells.join(" ");
-  };
-
-  const tableHeader = () => {
-    const width = dimensions().width;
-    const fixed = width >= 120 ? 91 : width >= 90 ? 69 : 48;
-    const cells = [
-      truncate("TIMESTAMP", 20),
-      truncate("DOMAIN", Math.max(12, width - fixed)),
-      truncate("CLIENT", 18),
-      truncate("TYPE", 7),
-    ];
-    if (width >= 90) cells.push(truncate("STATUS", 12), truncate("REPLY", 10));
-    if (width >= 120) cells.push(truncate("UPSTREAM", 20));
-    return cells.join(" ");
+  const currentSuggestionItems = () => {
+    const field = suggestionField();
+    return field === null ? [] : suggestions()[field];
   };
 
   return (
     <box width="100%" height="100%" flexDirection="column" backgroundColor={theme.bg}>
       <box height={1} backgroundColor={theme.bgHighlight} paddingLeft={1}>
         <text fg={theme.purple}>
-          <b>PI-HOLE EXPORT</b> · v6 HTTP API
+          <b>PI-HOLE EXPORT</b> · QUERY WORKBENCH
         </text>
       </box>
       <box flexGrow={1} flexDirection="column">
         <Switch>
           <Match when={screen() === "connect"}>
-            <box flexDirection="column" width="100%" maxWidth={100} padding={1} gap={1}>
-              <box
-                height={1}
-                width="100%"
-                flexDirection="row"
-                backgroundColor={theme.bgHighlight}
-                paddingLeft={1}
-                paddingRight={1}
-                justifyContent="space-between">
-                <text fg={theme.purple}>
-                  <b>CONNECTION</b>
-                </text>
-                <text fg={theme.muted}>AUTHENTICATE TO CONTINUE</text>
-              </box>
-              <box flexDirection="row" gap={1}>
-                <box flexDirection="column" height={2} width={12} minWidth={12}>
-                  <text fg={connectFocus() === "scheme" ? theme.cyan : theme.fg}>Scheme</text>
-                  <box
-                    height={1}
-                    backgroundColor={fieldBg(connectFocus() === "scheme")}
-                    paddingLeft={1}>
-                    <text fg={connectFocus() === "scheme" ? theme.yellow : theme.fg}>
-                      {scheme()} ◀▶
-                    </text>
-                  </box>
-                </box>
-                <Field
-                  label="Pi-hole IP / domain / full URL"
-                  value={host()}
-                  focused={connectionIsFocused("host")}
-                  placeholder="10.200.0.242 or https://pi.hole"
-                  onInput={setHost}
-                  onSubmit={connect}
-                />
-                <Field
-                  label="Port (optional)"
-                  value={port()}
-                  focused={connectionIsFocused("port")}
-                  placeholder="80 / 443"
-                  width={14}
-                  minWidth={14}
-                  flexGrow={0}
-                  onInput={setPort}
-                  onSubmit={connect}
-                />
-              </box>
-              <box flexDirection="column" height={2}>
-                <text fg={connectFocus() === "auth" ? theme.cyan : theme.fg}>Authentication</text>
-                <box flexDirection="row" height={1}>
-                  <For each={["password", "session", "none"] as const}>
-                    {(method) => (
-                      <box
-                        width={method === "session" ? 15 : 12}
-                        paddingLeft={1}
-                        backgroundColor={authMethod() === method ? theme.blueDark : theme.bgStripe}
-                        onMouseDown={() => {
-                          selectAuth(method);
-                          setConnectFocus("auth");
-                        }}>
-                        <text fg={authMethod() === method ? theme.green : theme.muted}>
-                          {method === "session" ? "SESSION ID" : method.toUpperCase()}
-                        </text>
-                      </box>
-                    )}
-                  </For>
-                </box>
-              </box>
-              <Show when={authMethod() !== "none"} fallback={<box />}>
-                <box flexDirection="row" gap={1}>
-                  <Field
-                    label={
-                      authMethod() === "session"
-                        ? "Existing session ID"
-                        : "Admin / application password"
-                    }
-                    value={secret()}
-                    focused={connectionIsFocused("secret")}
-                    secret
-                    placeholder={authMethod() === "session" ? "Session credential" : "Password"}
-                    onInput={setSecret}
-                    onSubmit={connect}
-                  />
-                  <Show when={authMethod() === "password"} fallback={<box />}>
-                    <Field
-                      label="TOTP (optional)"
-                      value={totp()}
-                      focused={connectionIsFocused("totp")}
-                      secret
-                      placeholder="123456"
-                      width={20}
-                      minWidth={20}
-                      flexGrow={0}
-                      onInput={setTotp}
-                      onSubmit={connect}
-                    />
-                  </Show>
-                </box>
-              </Show>
-              <box flexDirection="row" alignItems="center" gap={2}>
-                <ActionButton
-                  label={busy() ? "CONNECTING…" : "CONNECT"}
-                  focused={connectFocus() === "connect"}
-                  onPress={connect}
-                />
-                <text fg={theme.muted}>
-                  Credentials remain in memory only · TLS recommended off-host
-                </text>
-              </box>
-            </box>
+            <ConnectionScreen
+              width={dimensions().width}
+              host={host()}
+              scheme={scheme()}
+              port={port()}
+              authMethod={authMethod()}
+              secret={secret()}
+              totp={totp()}
+              focus={connectFocus()}
+              busy={busy()}
+              onFocus={setConnectFocus}
+              onHost={setHost}
+              onScheme={setScheme}
+              onPort={setPort}
+              onAuth={selectAuth}
+              onSecret={setSecret}
+              onTotp={setTotp}
+              onConnect={connect}
+            />
           </Match>
-
           <Match when={screen() === "filters"}>
-            <box flexDirection="column" padding={1} gap={1}>
-              <text fg={theme.cyan}>ADVANCED FILTERING</text>
-              <box gap={1}>
-                <Field
-                  label="From · local (inclusive)"
-                  value={filters.from}
-                  focused={filterIsFocused(0)}
-                  onInput={(v) => setFilters("from", v)}
-                />
-                <Field
-                  label="Until · local (exclusive)"
-                  value={filters.until}
-                  focused={filterIsFocused(1)}
-                  onInput={(v) => setFilters("until", v)}
-                />
-                <Field
-                  label="Timezone (IANA)"
-                  value={filters.timezone}
-                  focused={filterIsFocused(2)}
-                  placeholder="America/Sao_Paulo"
-                  onInput={(v) => setFilters("timezone", v)}
-                />
-                <box
-                  alignItems="center"
-                  gap={1}
-                  height={2}
-                  onMouseDown={() => setFilters("disk", !filters.disk)}>
-                  <text fg={filters.disk ? theme.yellow : theme.muted}>
-                    {filters.disk ? "[x]" : "[ ]"}
-                  </text>
-                  <text fg={focus() === 11 ? theme.cyan : theme.fg}>
-                    On-disk · slower
-                    {dimensions().width > 100 ? "; needed beyond in-memory history" : ""}
-                  </text>
-                </box>
-              </box>
-              <box gap={1}>
-                <Field
-                  label="Domain*"
-                  value={filters.domain}
-                  focused={filterIsFocused(3)}
-                  placeholder="Select or type…"
-                  onInput={(v) => setFilters("domain", v)}
-                />
-                <Field
-                  label="Client (IP)*"
-                  value={filters.clientIp}
-                  focused={filterIsFocused(4)}
-                  placeholder="Select or type…"
-                  onInput={(v) => setFilters("clientIp", v)}
-                />
-                <Field
-                  label="Client (name)*"
-                  value={filters.clientName}
-                  focused={filterIsFocused(5)}
-                  placeholder="Select or type…"
-                  onInput={(v) => setFilters("clientName", v)}
-                />
-                <Field
-                  label="Upstream*"
-                  value={filters.upstream}
-                  focused={filterIsFocused(6)}
-                  placeholder="Select or type…"
-                  onInput={(v) => setFilters("upstream", v)}
-                />
-              </box>
-              <box gap={1}>
-                <Field
-                  label="Type"
-                  value={filters.type}
-                  focused={filterIsFocused(7)}
-                  placeholder="Select or type…"
-                  onInput={(v) => setFilters("type", v)}
-                />
-                <Field
-                  label="Status"
-                  value={filters.status}
-                  focused={filterIsFocused(8)}
-                  placeholder="Select or type…"
-                  onInput={(v) => setFilters("status", v)}
-                />
-                <Field
-                  label="Reply"
-                  value={filters.reply}
-                  focused={filterIsFocused(9)}
-                  placeholder="Select or type…"
-                  onInput={(v) => setFilters("reply", v)}
-                />
-                <Field
-                  label="DNSSEC status"
-                  value={filters.dnssec}
-                  focused={filterIsFocused(10)}
-                  placeholder="Select or type…"
-                  onInput={(v) => setFilters("dnssec", v)}
-                />
-              </box>
-              <text fg={theme.muted}>
-                * Manual input supported · * wildcard · Ctrl+Space opens Pi-hole suggestions
-              </text>
-              <box>
-                <ActionButton
-                  label={busy() ? "QUERYING…" : "FETCH QUERIES"}
-                  focused={focus() === 12}
-                  onPress={submitFilters}
-                />
-              </box>
-            </box>
+            <FilterScreen
+              width={dimensions().width}
+              filters={filters}
+              setFilters={setFilters}
+              focus={filterFocus()}
+              busy={busy()}
+              live={live()}
+              onFocus={setFilterFocus}
+              onLive={() => setLive((value) => !value)}
+              onPresets={() => {
+                setReturnScreen("filters");
+                openPresets();
+              }}
+              onSubmit={submitFilters}
+            />
           </Match>
-
           <Match when={screen() === "results"}>
-            <box height={1} paddingLeft={1}>
-              <text fg={theme.green}>
-                {busy()
-                  ? "FETCHING ALL PAGES… Esc cancels"
-                  : `${rows().length.toLocaleString()} QUERIES`}
-              </text>
-            </box>
-            <box height={1} paddingLeft={1} backgroundColor={theme.bgHighlight}>
-              <text fg={theme.green}>{tableHeader()}</text>
-            </box>
-            <box flexDirection="column" flexGrow={1}>
-              <For each={visibleRows()}>
-                {({ row, index }) => (
-                  <box
-                    height={1}
-                    paddingLeft={1}
-                    backgroundColor={
-                      index === selected()
-                        ? theme.blueDark
-                        : index % 2 === 0
-                          ? theme.bg
-                          : theme.bgStripe
-                    }>
-                    <text fg={index === selected() ? theme.fg : theme.fg}>
-                      {index === selected() ? "> " : "  "}
-                      {tableLine(row)}
-                    </text>
-                  </box>
-                )}
-              </For>
-              <Show when={!busy() && rows().length === 0} fallback={<box />}>
-                <text fg={theme.muted}> No matching queries.</text>
-              </Show>
-            </box>
+            <ResultsScreen
+              width={dimensions().width}
+              height={dimensions().height}
+              rows={visibleRows()}
+              selected={selected()}
+              busy={busy()}
+              live={live()}
+              aggregate={aggregate()}
+              analytics={analytics()}
+              search={search()}
+              sort={sort()}
+              actionFocus={resultFocus()}
+              onActionFocus={(index) => {
+                setResultFocus(index);
+                setResultControlMode(true);
+              }}
+              onAction={runResultAction}
+              onSelect={(index) => {
+                setSelected(index);
+                setResultControlMode(false);
+              }}
+              onInspect={inspect}
+              onMove={moveSelection}
+            />
           </Match>
         </Switch>
       </box>
-
-      <Show
-        when={screen() === "connect"}
-        fallback={
-          <Show when={message() !== ""} fallback={<box />}>
-            <box height={1} paddingLeft={1}>
-              <text
-                fg={
-                  message().startsWith("Exported") ||
-                  message().startsWith("Connected") ||
-                  message().includes("queries")
+      <Show when={message() !== "" || screen() === "connect"} fallback={<box />}>
+        <box height={1} paddingLeft={1} backgroundColor={theme.bgStripe}>
+          <text
+            fg={
+              busy()
+                ? theme.yellow
+                : message().startsWith("Exported") ||
+                    message().startsWith("Connected") ||
+                    message().includes("queries")
+                  ? theme.green
+                  : message() === ""
                     ? theme.green
                     : theme.orange
-                }>
-                {message()}
-              </text>
-            </box>
-          </Show>
-        }>
-        <box height={1} width="100%" backgroundColor={theme.bgStripe} paddingLeft={1}>
-          <text fg={busy() ? theme.yellow : message() === "" ? theme.green : theme.orange}>
-            {busy() ? "CONNECTING · AUTHENTICATING AND VERIFYING PI-HOLE V6" : message() || "READY"}
+            }>
+            {busy() ? "WORKING… ESC CANCELS" : message() || "READY"}
           </text>
         </box>
       </Show>
-
       <Show when={screen() === "connect"} fallback={<box />}>
         <KeyBar
           items={[
@@ -835,7 +662,7 @@ export function App() {
           items={[
             ["TAB", "NEXT"],
             ["^SPACE", "SUGGEST"],
-            ["ENTER", "QUERY"],
+            ["ENTER", "ACTIVATE"],
             ["ESC", "QUIT"],
           ]}
         />
@@ -843,214 +670,118 @@ export function App() {
       <Show when={screen() === "results"} fallback={<box />}>
         <KeyBar
           items={[
-            ["↑/↓ J/K", "NAVIGATE"],
-            ["ENTER", "INSPECT"],
-            ["F", "FILTERS"],
-            ["R", "RERUN"],
+            ["↑/↓ J/K", "ROWS"],
+            ["TAB", "ACTIONS"],
+            ["ENTER", "OPEN"],
+            ["/", "SEARCH"],
             ["E", "EXPORT"],
             ["?", "HELP"],
-            ["Q", "QUIT"],
           ]}
         />
       </Show>
 
       <Show when={screen() === "confirm"} fallback={<box />}>
-        {(_) => (
-          <box
-            position="absolute"
-            top={0}
-            left={0}
-            zIndex={1000}
-            width="100%"
-            height="100%"
-            alignItems="center"
-            justifyContent="center"
-            backgroundColor={theme.bgDark}>
-            <box
-              width="80%"
-              maxWidth={82}
-              flexDirection="column"
-              backgroundColor={theme.bgHighlight}
-              border
-              borderColor={theme.yellow}
-              padding={1}
-              gap={1}>
-              <text fg={theme.yellow}>HEAVY QUERY</text>
-              <text fg={theme.fg}>
-                This query scans more than 2 days of history without any additional filter and may
-                cause heavy disk I/O. Continue?
-              </text>
-              <text fg={theme.muted}>Enter continue · Esc/N cancel</text>
-            </box>
-          </box>
-        )}
+        <ConfirmDialog
+          focus={dialogFocus()}
+          onFocus={setDialogFocus}
+          onAccept={() => {
+            const spec = pendingSpec();
+            if (spec !== null) executeQuery(spec);
+          }}
+          onCancel={() => setScreen("filters")}
+        />
       </Show>
-
       <Show when={screen() === "suggestions"} fallback={<box />}>
-        {(_) => (
-          <box
-            position="absolute"
-            top={0}
-            left={0}
-            zIndex={1000}
-            width="100%"
-            height="100%"
-            alignItems="center"
-            justifyContent="center"
-            backgroundColor={theme.bgDark}>
-            <box
-              width="70%"
-              maxWidth={72}
-              maxHeight="70%"
-              flexDirection="column"
-              backgroundColor={theme.bgHighlight}
-              border
-              borderColor={theme.blue}
-              padding={1}>
-              <text fg={theme.cyan}>PI-HOLE SUGGESTIONS · {suggestionField() ?? ""}</text>
-              <For
-                each={(() => {
-                  const field = suggestionField();
-                  return field === null ? [] : suggestions()[field];
-                })()}>
-                {(item, index) => (
-                  <box
-                    backgroundColor={
-                      index() === suggestionIndex() ? theme.blueDark : "transparent"
-                    }>
-                    <text fg={theme.fg}>
-                      {index() === suggestionIndex() ? "> " : "  "}
-                      {item}
-                    </text>
-                  </box>
-                )}
-              </For>
-              <text fg={theme.muted}>↑/↓ or j/k select · Enter apply · Esc keep manual input</text>
-            </box>
-          </box>
+        <SuggestionDialog
+          title={suggestionField() ?? ""}
+          items={currentSuggestionItems()}
+          selected={suggestionIndex()}
+          focus={dialogFocus()}
+          onFocus={setDialogFocus}
+          onSelect={setSuggestionIndex}
+          onApply={applySuggestion}
+          onMove={(delta) =>
+            setSuggestionIndex(moveIndex(suggestionIndex(), delta, currentSuggestionItems().length))
+          }
+          onCancel={() => setScreen("filters")}
+        />
+      </Show>
+      <Show when={screen() === "inspect" ? inspectTarget() : null} fallback={<box />}>
+        {(row) => (
+          <InspectDialog
+            row={row()}
+            focus={dialogFocus()}
+            onFocus={setDialogFocus}
+            onRefine={refine}
+            onClose={() => setScreen("results")}
+          />
         )}
       </Show>
-
-      <Show when={screen() === "inspect"} fallback={<box />}>
-        {(_) => (
-          <box
-            position="absolute"
-            top={0}
-            left={0}
-            zIndex={1000}
-            width="100%"
-            height="100%"
-            alignItems="center"
-            justifyContent="center"
-            backgroundColor={theme.bgDark}>
-            <box
-              width="85%"
-              maxWidth={100}
-              flexDirection="column"
-              backgroundColor={theme.bgHighlight}
-              border
-              borderColor={theme.blue}
-              padding={1}>
-              <text fg={theme.cyan}>QUERY {rows()[selected()]?.id ?? ""}</text>
-              <Show when={rows()[selected()]} fallback={<box />}>
-                {(item) => (
-                  <box flexDirection="column">
-                    <text>Time {new Date(item().time * 1000).toISOString()}</text>
-                    <text>Domain {item().domain}</text>
-                    <text>
-                      Client {item().client.ip} {item().client.name ?? ""}
-                    </text>
-                    <text>Type {item().type}</text>
-                    <text>Status {item().status ?? "—"}</text>
-                    <text>
-                      Reply {item().reply.type ?? "—"} · {item().reply.time} ms
-                    </text>
-                    <text>Upstream {item().upstream ?? "—"}</text>
-                    <text>DNSSEC {item().dnssec ?? "—"}</text>
-                    <text>CNAME {item().cname ?? "—"}</text>
-                    <text>
-                      EDE {item().ede.code} {item().ede.text ?? ""}
-                    </text>
-                  </box>
-                )}
-              </Show>
-              <text fg={theme.muted}>Esc / Enter close</text>
-            </box>
-          </box>
-        )}
+      <Show when={screen() === "search"} fallback={<box />}>
+        <SearchDialog
+          value={searchDraft()}
+          focus={dialogFocus()}
+          onFocus={setDialogFocus}
+          onInput={setSearchDraft}
+          onApply={() => {
+            setSearch(searchDraft());
+            setSelected(0);
+            setScreen("results");
+          }}
+          onClear={() => {
+            setSearch("");
+            setSearchDraft("");
+            setSelected(0);
+            setScreen("results");
+          }}
+          onCancel={() => setScreen("results")}
+        />
       </Show>
-
       <Show when={screen() === "export"} fallback={<box />}>
-        {(_) => (
-          <box
-            position="absolute"
-            top={0}
-            left={0}
-            zIndex={1000}
-            width="100%"
-            height="100%"
-            alignItems="center"
-            justifyContent="center"
-            backgroundColor={theme.bgDark}>
-            <box
-              width="85%"
-              maxWidth={100}
-              flexDirection="column"
-              backgroundColor={theme.bgHighlight}
-              border
-              borderColor={theme.green}
-              padding={1}
-              gap={1}>
-              <text fg={theme.green}>
-                EXPORT ALL {rows().length.toLocaleString()} MATCHING ROWS
-              </text>
-              <Field
-                label="Local or UNC destination"
-                value={exportPath()}
-                focused={screen() === "export"}
-                placeholder="queries.csv or \\server\share\queries.csv"
-                onInput={setExportPath}
-                onSubmit={exportRows}
-              />
-              <text fg={theme.muted}>Enter export · Esc cancel</text>
-            </box>
-          </box>
-        )}
+        <ExportDialog
+          path={exportPath()}
+          format={exportFormat()}
+          focus={dialogFocus()}
+          busy={busy()}
+          onFocus={setDialogFocus}
+          onPath={setExportPath}
+          onFormat={(format) => {
+            setExportFormat(format);
+            const spec = activeSpec();
+            if (spec !== null) setExportPath(defaultFilename(spec, format));
+          }}
+          onExport={exportRows}
+          onCancel={() => {
+            if (busy()) stopWork("Export cancelled");
+            setScreen("results");
+          }}
+        />
       </Show>
-
+      <Show when={screen() === "presets"} fallback={<box />}>
+        <PresetDialog
+          presets={presets()}
+          name={presetName()}
+          focus={dialogFocus()}
+          onFocus={setDialogFocus}
+          onName={setPresetName}
+          onSave={saveCurrentPreset}
+          onApply={applyPreset}
+          onDelete={deletePreset}
+          onCancel={() => setScreen(returnScreen() === "results" ? "results" : "filters")}
+        />
+      </Show>
       <Show when={screen() === "help"} fallback={<box />}>
-        {(_) => (
-          <box
-            position="absolute"
-            top={0}
-            left={0}
-            zIndex={1000}
-            width="100%"
-            height="100%"
-            alignItems="center"
-            justifyContent="center"
-            backgroundColor={theme.bgDark}>
-            <box
-              width="70%"
-              maxWidth={76}
-              flexDirection="column"
-              backgroundColor={theme.bgHighlight}
-              border
-              borderColor={theme.purple}
-              padding={1}>
-              <text fg={theme.purple}>HELP</text>
-              <text>
-                ↑/↓, j/k navigate · Enter inspect · f filters · r rerun · e export all · ? help · q
-                quit
-              </text>
-              <text>Tab / Shift+Tab moves forms · Esc backs out or cancels active work.</text>
-              <text fg={theme.muted}>
-                Normal typing is never intercepted while an input is focused.
-              </text>
-            </box>
-          </box>
-        )}
+        <HelpDialog onClose={() => setScreen(returnScreen())} />
       </Show>
     </box>
   );
 }
+
+const refineActionsForKeyboard: ReadonlyArray<RefinableField> = [
+  "domain",
+  "clientIp",
+  "clientName",
+  "upstream",
+  "type",
+  "status",
+];
