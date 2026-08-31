@@ -9,8 +9,24 @@ permissions:
   contents: write
 
 jobs:
-  release:
-    runs-on: ubuntu-latest
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux-x64
+            binary: bin/pihole-export
+            extension: ""
+          - os: macos-latest
+            platform: darwin-arm64
+            binary: bin/pihole-export
+            extension: ""
+          - os: windows-latest
+            platform: windows-x64
+            binary: bin/pihole-export.exe
+            extension: ".exe"
+
+    runs-on: ${{ matrix.os }}
 
     steps:
       - uses: actions/checkout@v6
@@ -26,26 +42,42 @@ jobs:
       - name: Compile
         run: mise run compile
 
-      - name: Prepare release
-        id: release
+      - name: Prepare artifact
+        shell: bash
         run: |
           VERSION="$(bun -e 'console.log((await Bun.file("package.json").json()).version)')"
           SHORT_SHA="${GITHUB_SHA::7}"
+          ASSET="pihole-export-v${VERSION}-${SHORT_SHA}-${{ matrix.platform }}${{ matrix.extension }}"
+          mv "${{ matrix.binary }}" "$ASSET"
 
-          ASSET="pihole-export-${VERSION}-${SHORT_SHA}"
-          mv bin/pihole-export "$ASSET"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.platform }}
+          path: pihole-export-*
+          if-no-files-found: error
 
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "short_sha=$SHORT_SHA" >> "$GITHUB_OUTPUT"
-          echo "asset=$ASSET" >> "$GITHUB_OUTPUT"
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
 
       - name: Create prerelease
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "dev-${{ steps.release.outputs.short_sha }}" \
-            "${{ steps.release.outputs.asset }}" \
+          VERSION="$(jq -r .version package.json)"
+          SHORT_SHA="${GITHUB_SHA::7}"
+
+          gh release create "dev-${SHORT_SHA}" \
+            artifacts/pihole-export-* \
             --target "$GITHUB_SHA" \
-            --title "pihole-export ${{ steps.release.outputs.version }} (${{ steps.release.outputs.short_sha }})" \
+            --title "pihole-export v${VERSION} (${SHORT_SHA})" \
             --generate-notes \
             --prerelease

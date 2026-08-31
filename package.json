@@ -22,6 +22,7 @@
     "@tuiparts/solid": "^0.0.6",
     "effect": "^3.22.1",
     "hyparquet-writer": "^0.12.3",
+    "lefthook": "^2.1.12",
     "solid-js": "^1.9.15"
   },
   "devDependencies": {
