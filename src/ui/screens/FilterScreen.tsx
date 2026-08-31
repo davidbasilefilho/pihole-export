@@ -4,6 +4,7 @@ import { createEffect } from "solid-js";
 import type { SetStoreFunction } from "solid-js/store";
 
 import type { FilterForm } from "../../lib/model";
+import { formatLocalDateTimeInput } from "../../lib/time";
 import { ActionButton, Field, Section } from "../primitives";
 import { theme } from "../theme";
 
@@ -51,7 +52,14 @@ export function FilterScreen(props: {
       focused={props.focus === index}
       placeholder={placeholder}
       onFocus={() => props.onFocus(index)}
-      onInput={(value) => props.setFilters(key, value)}
+      onInput={(value) =>
+        props.setFilters(
+          key,
+          key === "from" || key === "until"
+            ? formatLocalDateTimeInput(value, props.filters[key])
+            : value,
+        )
+      }
       onSubmit={props.onSubmit}
     />
   );
@@ -60,8 +68,8 @@ export function FilterScreen(props: {
       <box flexDirection="column" width="100%" padding={1} gap={1}>
         <Section title="DATE · TIME · TIMEZONE">
           <box flexDirection={narrow() ? "column" : "row"} gap={1}>
-            {field(0, "from", "From · local (inclusive)")}
-            {field(1, "until", "Until · local (exclusive)")}
+            {field(0, "from", "From · DD/MM/YYYY HH:mm:ss (inclusive)")}
+            {field(1, "until", "Until · DD/MM/YYYY HH:mm:ss (exclusive)")}
             {field(2, "timezone", "Timezone (IANA)", "America/Sao_Paulo")}
           </box>
         </Section>

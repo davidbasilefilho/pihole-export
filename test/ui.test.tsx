@@ -75,7 +75,7 @@ test("segmented controls render centered labels and selected state", async () =>
 })
 
 const initialFilters: FilterForm = {
-  from: "2026-08-31 10:00:00", until: "2026-08-31 11:00:00", timezone: "UTC",
+  from: "31/08/2026 10:00:00", until: "31/08/2026 11:00:00", timezone: "UTC",
   disk: false, domain: "", clientIp: "", clientName: "", upstream: "", type: "",
   status: "", reply: "", dnssec: "",
 }

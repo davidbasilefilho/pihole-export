@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { Effect, Exit, Schema } from "effect"
 import { toCsv } from "../src/lib/export"
 import { QueryResponse } from "../src/lib/model"
-import { baseUrl, needsHeavyQueryConfirmation, serializeQuery, type QuerySpec } from "../src/lib/query"
+import { baseUrl, needsHeavyQueryConfirmation, serializeQuery, toQuerySpec, type QuerySpec } from "../src/lib/query"
 import { localToEpochSeconds } from "../src/lib/time"
 
 const spec: QuerySpec = {
@@ -68,12 +68,29 @@ describe("query construction", () => {
 
 describe("time boundaries", () => {
   test("converts human local values in an explicit timezone", async () => {
-    const result = await Effect.runPromise(localToEpochSeconds("2026-08-29 12:00:00", "America/Sao_Paulo"))
+    const result = await Effect.runPromise(localToEpochSeconds("29/08/2026 12:00:00", "America/Sao_Paulo"))
     expect(result).toBe(Date.parse("2026-08-29T15:00:00Z") / 1000)
   })
 
   test("rejects nonexistent DST local times", async () => {
-    const exit = await Effect.runPromiseExit(localToEpochSeconds("2026-03-08 02:30:00", "America/New_York"))
+    const exit = await Effect.runPromiseExit(localToEpochSeconds("08/03/2026 02:30:00", "America/New_York"))
+    expect(Exit.isFailure(exit)).toBeTrue()
+  })
+
+  test("converts client-formatted timestamps before API serialization", async () => {
+    const converted = await Effect.runPromise(toQuerySpec({
+      from: "29/08/2026 12:00:00", until: "29/08/2026 13:00:00", timezone: "America/Sao_Paulo",
+      disk: false, domain: "", clientIp: "", clientName: "", upstream: "", type: "",
+      status: "", reply: "", dnssec: "",
+    }))
+    const params = serializeQuery(converted)
+    expect(params.get("from")).toBe(String(Date.parse("2026-08-29T15:00:00Z") / 1000))
+    expect(params.get("until")).toBe(String(Date.parse("2026-08-29T16:00:00Z") / 1000))
+    expect(params.toString()).not.toContain("29%2F08%2F2026")
+  })
+
+  test("rejects impossible calendar dates", async () => {
+    const exit = await Effect.runPromiseExit(localToEpochSeconds("31/02/2026 12:00:00", "UTC"))
     expect(Exit.isFailure(exit)).toBeTrue()
   })
 

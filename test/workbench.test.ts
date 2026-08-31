@@ -10,6 +10,7 @@ import { parseHeadlessOptions } from "../src/lib/headless";
 import type { FilterForm, Query } from "../src/lib/model";
 import { loadPresets, savePresets, upsertPreset } from "../src/lib/presets";
 import { refineFiltersFromQuery, searchAndSortQueries } from "../src/lib/query";
+import { formatLocalDateTimeInput } from "../src/lib/time";
 import { connectControls, moveCyclic, moveIndex } from "../src/ui/focus";
 
 const makeQuery = (id: number, overrides: Partial<Query> = {}): Query => ({
@@ -73,10 +74,24 @@ describe("result workbench", () => {
   });
 
   test("uses one cyclic focus model for keyboard and mouse-owned controls", () => {
-    expect(connectControls("none")).toEqual(["host", "scheme", "port", "auth", "connect"]);
-    expect(moveCyclic(connectControls("none"), "host", 1)).toBe("scheme");
+    expect(connectControls("none")).toEqual(["scheme", "host", "port", "auth", "connect"]);
+    expect(moveCyclic(connectControls("none"), "host", -1)).toBe("scheme");
+    expect(moveCyclic(connectControls("none"), "host", 1)).toBe("port");
     expect(moveIndex(0, -1, 4)).toBe(3);
     expect(moveIndex(3, 1, 4, false)).toBe(3);
+  });
+});
+
+describe("local timestamp input", () => {
+  test("inserts separators and removes them naturally with backspace", () => {
+    expect(formatLocalDateTimeInput("16")).toBe("16/");
+    expect(formatLocalDateTimeInput("16", "16/")).toBe("1");
+    expect(formatLocalDateTimeInput("30072026082")).toBe("30/07/2026 08:2");
+    expect(formatLocalDateTimeInput("30/07/2026 08:", "30/07/2026 08:2")).toBe(
+      "30/07/2026 08",
+    );
+    expect(formatLocalDateTimeInput("300720260")).toBe("30/07/2026 0");
+    expect(formatLocalDateTimeInput("30/07/2026 ", "30/07/2026 0")).toBe("30/07/2026");
   });
 });
 

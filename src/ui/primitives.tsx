@@ -172,8 +172,6 @@ export function Modal(props: {
         maxHeight="85%"
         flexDirection="column"
         backgroundColor={theme.bgHighlight}
-        border
-        borderColor={props.color ?? theme.blue}
         padding={1}
         gap={1}>
         <text fg={props.color ?? theme.cyan}>{props.title}</text>

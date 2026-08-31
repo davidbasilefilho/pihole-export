@@ -16,10 +16,10 @@ export type ConnectFocus = "host" | "scheme" | "port" | "auth" | "secret" | "tot
 
 export const connectControls = (method: AuthMethod): ReadonlyArray<ConnectFocus> =>
   method === "password"
-    ? ["host", "scheme", "port", "auth", "secret", "totp", "connect"]
+    ? ["scheme", "host", "port", "auth", "secret", "totp", "connect"]
     : method === "session"
-      ? ["host", "scheme", "port", "auth", "secret", "connect"]
-      : ["host", "scheme", "port", "auth", "connect"];
+      ? ["scheme", "host", "port", "auth", "secret", "connect"]
+      : ["scheme", "host", "port", "auth", "connect"];
 
 export const moveCyclic = <T>(items: ReadonlyArray<T>, current: T, delta: number): T => {
   if (items.length === 0) return current;

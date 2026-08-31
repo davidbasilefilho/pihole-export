@@ -1,6 +1,6 @@
 {
   "name": "pihole-export",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Keyboard-first Pi-hole v6 query log exporter",
   "type": "module",
   "bin": {
