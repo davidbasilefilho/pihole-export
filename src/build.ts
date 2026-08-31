@@ -1,5 +1,6 @@
 import { rm } from "node:fs/promises";
 
+import solidPlugin from "@opentui/solid/bun-plugin";
 import { Console, Effect } from "effect";
 
 const outdir = "bin";
@@ -17,6 +18,7 @@ const build = Effect.gen(function* () {
         entrypoints: ["src/index.tsx"],
         target: "bun",
         format: "esm",
+        plugins: [solidPlugin],
         compile: {
           outfile,
           autoloadBunfig: false,
