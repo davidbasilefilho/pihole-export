@@ -4,13 +4,15 @@ import { Effect, Fiber, Schema } from "effect";
 import { createMemo, createSignal, Match, Show, Switch } from "solid-js";
 import { createStore } from "solid-js/store";
 
-import { analyzeQueries } from "./lib/analytics";
+import { analyzeQueries, isBlockedQuery } from "./lib/analytics";
 import {
   authenticate,
   type AuthenticatedConnection,
+  type DomainMutationAction,
   fetchAllQueries,
   fetchSuggestions,
   logout,
+  mutateDomain,
   streamQueryPages,
 } from "./lib/api";
 import { exportQueryPages } from "./lib/export";
@@ -46,6 +48,7 @@ import { runtime, type AppServices } from "./lib/runtime";
 import { defaultRange } from "./lib/time";
 import {
   ConfirmDialog,
+  DomainActionDialog,
   ExportDialog,
   HelpDialog,
   InspectDialog,
@@ -133,6 +136,10 @@ export function App() {
   const [busy, setBusy] = createSignal(false);
   const [message, setMessage] = createSignal("");
   const [pendingSpec, setPendingSpec] = createSignal<QuerySpec | null>(null);
+  const [pendingDomainAction, setPendingDomainAction] = createSignal<{
+    readonly domain: string;
+    readonly action: DomainMutationAction;
+  } | null>(null);
   const [activeSpec, setActiveSpec] = createSignal<QuerySpec | null>(null);
   const [aggregate, setAggregate] = createSignal(false);
   const [sort, setSort] = createSignal<ResultSort>("time-desc");
@@ -391,6 +398,28 @@ export function App() {
     setScreen("inspect");
   };
 
+  const openDomainAction = () => {
+    const row = selectedRow();
+    if (row === undefined) return setMessage("Select a query first");
+    setPendingDomainAction({
+      domain: row.domain,
+      action: isBlockedQuery(row) ? "unblock" : "block",
+    });
+    setDialogFocus(0);
+    setScreen("domain-confirm");
+  };
+
+  const confirmDomainAction = () => {
+    const active = connection();
+    const pending = pendingDomainAction();
+    if (active === null || pending === null) return;
+    setScreen("results");
+    runEffect(mutateDomain(active, pending.domain, pending.action), () => {
+      setPendingDomainAction(null);
+      setMessage(`${pending.action === "block" ? "Blocked" : "Unblocked"} ${pending.domain}`);
+    });
+  };
+
   const cycleSort = () => setSort((current) => moveCyclic(sortOrder, current, 1));
 
   const runResultAction = (index: number) => {
@@ -409,6 +438,9 @@ export function App() {
         break;
       case "REFINE":
         inspect();
+        break;
+      case "BLOCK":
+        openDomainAction();
         break;
       case "EXPORT":
         openExport();
@@ -472,6 +504,17 @@ export function App() {
       if (dialogFocus() !== 0) return setScreen("filters");
       const spec = pendingSpec();
       if (spec !== null) executeQuery(spec);
+    },
+    acceptDomainMutation: () => {
+      if (dialogFocus() === 0) confirmDomainAction();
+      else {
+        setPendingDomainAction(null);
+        setScreen("results");
+      }
+    },
+    cancelDomainMutation: () => {
+      setPendingDomainAction(null);
+      setScreen("results");
     },
     showResults: () => setScreen("results"),
     activateInspect: () =>
@@ -598,6 +641,8 @@ export function App() {
               busy()
                 ? theme.yellow
                 : message().startsWith("Exported") ||
+                    message().startsWith("Blocked") ||
+                    message().startsWith("Unblocked") ||
                     message().startsWith("Connected") ||
                     message().includes("queries")
                   ? theme.green
@@ -637,6 +682,7 @@ export function App() {
             ["TAB", "ACTIONS"],
             ["ENTER", "OPEN"],
             ["/", "SEARCH"],
+            ["^B", "BLOCK/UNBLOCK"],
             ["E", "EXPORT"],
             ["?", "HELP"],
           ]}
@@ -653,6 +699,21 @@ export function App() {
           }}
           onCancel={() => setScreen("filters")}
         />
+      </Show>
+      <Show when={screen() === "domain-confirm" ? pendingDomainAction() : null} fallback={<box />}>
+        {(pending) => (
+          <DomainActionDialog
+            domain={pending().domain}
+            action={pending().action}
+            focus={dialogFocus()}
+            onFocus={setDialogFocus}
+            onConfirm={confirmDomainAction}
+            onCancel={() => {
+              setPendingDomainAction(null);
+              setScreen("results");
+            }}
+          />
+        )}
       </Show>
       <Show when={screen() === "suggestions"} fallback={<box />}>
         <SuggestionDialog

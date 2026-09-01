@@ -6,7 +6,7 @@ import { Cause, Effect, Exit, Fiber, Layer, Stream } from "effect"
 import { mkdtempSync, readFileSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { authenticate, fetchAllQueries, fetchSuggestions, HttpLive, streamQueryPages } from "../src/lib/api"
+import { authenticate, fetchAllQueries, fetchSuggestions, HttpLive, mutateDomain, streamQueryPages } from "../src/lib/api"
 import { exportQueryPages, writeCsv } from "../src/lib/export"
 import { runHeadless } from "../src/lib/headless"
 import { NetworkError, type ConnectionForm } from "../src/lib/model"
@@ -14,6 +14,7 @@ import type { QuerySpec } from "../src/lib/query"
 
 const total = 10_005
 const pageStarts: Array<{ start: number; cursor: string | null }> = []
+const domainMutations: Array<{ path: string; sid: string | null; body: unknown }> = []
 const makeQuery = (id: number) => ({
   id,
   time: 1_700_000_000 + id,
@@ -58,6 +59,22 @@ beforeAll(() => {
         const count = Math.min(10_000, total - start)
         const queries = Array.from({ length: Math.max(0, count) }, (_, index) => makeQuery(start + index + 1))
         return Response.json({ queries, cursor: 50_000, recordsTotal: total, recordsFiltered: total, draw: 0, earliest_timestamp: 1, earliest_timestamp_disk: 1, took: 0.01 })
+      },
+      "/api/domains/deny/exact": {
+        POST: async (request) => {
+          const body = await request.json()
+          domainMutations.push({ path: new URL(request.url).pathname, sid: request.headers.get("X-FTL-SID"), body })
+          if (typeof body === "object" && body !== null && "domain" in body && body.domain === "failure.example")
+            return Response.json({ error: { key: "database_error", message: "Domain mutation failed", hint: null } }, { status: 500 })
+          return Response.json({ domains: [], processed: { success: [body] }, took: 0.001 }, { status: 201 })
+        },
+      },
+      "/api/domains/allow/exact": {
+        POST: async (request) => {
+          const body = await request.json()
+          domainMutations.push({ path: new URL(request.url).pathname, sid: request.headers.get("X-FTL-SID"), body })
+          return Response.json({ domains: [], processed: { success: [body] }, took: 0.001 }, { status: 201 })
+        },
       },
       "/slow": async () => {
         await Bun.sleep(5_000)
@@ -115,6 +132,29 @@ describe("Pi-hole HTTP lifecycle", () => {
     expect(result.exported.count).toBe(total)
     expect(readFileSync(path, "utf8").split("\r\n")).toHaveLength(total + 2)
   }, 15_000)
+
+  test("posts exact deny/allow domain mutations with the active Pi-hole session", async () => {
+    domainMutations.length = 0
+    const connection = await Effect.runPromise(authenticate(baseUrl, passwordForm("correct")).pipe(Effect.provide(HttpLive)))
+    await Effect.runPromise(mutateDomain(connection, "ads.example", "block").pipe(Effect.provide(HttpLive)))
+    await Effect.runPromise(mutateDomain(connection, "safe.example", "unblock").pipe(Effect.provide(HttpLive)))
+    expect(domainMutations).toEqual([
+      {
+        path: "/api/domains/deny/exact",
+        sid: "test-sid",
+        body: { domain: "ads.example", comment: "Added from Query Log", type: "deny", kind: "exact" },
+      },
+      {
+        path: "/api/domains/allow/exact",
+        sid: "test-sid",
+        body: { domain: "safe.example", comment: "Added from Query Log", type: "allow", kind: "exact" },
+      },
+    ])
+
+    const failure = await Effect.runPromiseExit(mutateDomain(connection, "failure.example", "block").pipe(Effect.provide(HttpLive)))
+    expect(Exit.isFailure(failure)).toBeTrue()
+    if (Exit.isFailure(failure)) expect(Cause.pretty(failure.cause)).toContain("Domain mutation failed")
+  })
 
   test("streams complete CSV, JSONL, SQLite, and Parquet exports from the page primitive", async () => {
     const connection = await Effect.runPromise(authenticate(baseUrl, passwordForm("correct")).pipe(Effect.provide(HttpLive)))

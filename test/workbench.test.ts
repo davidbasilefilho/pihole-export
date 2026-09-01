@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import type { KeyEvent } from "@opentui/core";
 import { BunFileSystem } from "@effect/platform-bun";
 import { Effect } from "effect";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
@@ -12,6 +13,7 @@ import { loadPresets, savePresets, upsertPreset } from "../src/lib/presets";
 import { refineFiltersFromQuery, searchAndSortQueries } from "../src/lib/query";
 import { formatLocalDateTimeInput } from "../src/lib/time";
 import { connectControls, moveCyclic, moveIndex } from "../src/ui/focus";
+import { handleWorkbenchKey, type WorkbenchKeyboard } from "../src/ui/keyboard";
 
 const makeQuery = (id: number, overrides: Partial<Query> = {}): Query => ({
   id,
@@ -79,6 +81,94 @@ describe("result workbench", () => {
     expect(moveCyclic(connectControls("none"), "host", 1)).toBe("port");
     expect(moveIndex(0, -1, 4)).toBe(3);
     expect(moveIndex(3, 1, 4, false)).toBe(3);
+  });
+
+  test("consumes Export E before opening the focused destination input", () => {
+    let prevented = false;
+    let action = -1;
+    let preventedBeforeTransition = false;
+    handleWorkbenchKey(
+      {
+        screen: () => "results",
+        busy: () => false,
+        resultAction: (index) => {
+          action = index;
+          preventedBeforeTransition = prevented;
+        },
+      } as WorkbenchKeyboard,
+      {
+        name: "e",
+        ctrl: false,
+        shift: true,
+        preventDefault: () => {
+          prevented = true;
+        },
+      } as KeyEvent,
+    );
+    expect(action).toBe(5);
+    expect(prevented).toBeTrue();
+    expect(preventedBeforeTransition).toBeTrue();
+  });
+
+  test("routes Ctrl+B to block/unblock and supports confirmation keyboard controls", () => {
+    let prevented = false;
+    let action = -1;
+    handleWorkbenchKey(
+      {
+        screen: () => "results",
+        busy: () => false,
+        resultAction: (index) => {
+          action = index;
+        },
+      } as WorkbenchKeyboard,
+      {
+        name: "b",
+        ctrl: true,
+        shift: false,
+        preventDefault: () => {
+          prevented = true;
+        },
+      } as KeyEvent,
+    );
+    expect(action).toBe(4);
+    expect(prevented).toBeTrue();
+
+    let accepted = 0;
+    let cancelled = 0;
+    const modalActions = {
+      screen: () => "domain-confirm",
+      acceptDomainMutation: () => {
+        accepted += 1;
+      },
+      cancelDomainMutation: () => {
+        cancelled += 1;
+      },
+    } as WorkbenchKeyboard;
+    handleWorkbenchKey(modalActions, { name: "return", ctrl: false, shift: false } as KeyEvent);
+    handleWorkbenchKey(modalActions, { name: "escape", ctrl: false, shift: false } as KeyEvent);
+    expect(accepted).toBe(1);
+    expect(cancelled).toBe(1);
+
+    let focusDelta = 0;
+    let tabPrevented = false;
+    handleWorkbenchKey(
+      {
+        ...modalActions,
+        moveDialogFocus: (delta) => {
+          focusDelta = delta;
+        },
+      },
+      {
+        name: "tab",
+        ctrl: false,
+        shift: true,
+        preventDefault: () => {
+          tabPrevented = true;
+        },
+      } as KeyEvent,
+    );
+    expect(focusDelta).toBe(-1);
+    expect(tabPrevented).toBeTrue();
   });
 });
 

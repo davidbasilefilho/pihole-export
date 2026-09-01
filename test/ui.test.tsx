@@ -6,7 +6,11 @@ import { createSignal } from "solid-js"
 import { createStore } from "solid-js/store"
 import { App } from "../src/App"
 import type { FilterForm } from "../src/lib/model"
+import type { Query } from "../src/lib/model"
+import { analyzeQueries } from "../src/lib/analytics"
+import { DomainActionDialog } from "../src/ui/dialogs"
 import { FilterScreen } from "../src/ui/screens/FilterScreen"
+import { ResultsScreen } from "../src/ui/screens/ResultsScreen"
 import { Segmented } from "../src/ui/primitives"
 
 test("startup renders the credential-first compact connection screen", async () => {
@@ -106,5 +110,121 @@ test("filter layout groups scan cleanly at wide and narrow terminal sizes", asyn
     } finally {
       setup.renderer.destroy()
     }
+  }
+})
+
+const resultQuery = (status: string | null): Query => ({
+  id: 1,
+  time: 1_700_000_000,
+  type: "A",
+  domain: "ads.example",
+  cname: null,
+  status,
+  client: { ip: "10.0.0.2", name: "desktop" },
+  dnssec: "INSECURE",
+  reply: { type: "IP", time: 2 },
+  list_id: null,
+  upstream: "1.1.1.1#53",
+  ede: { code: 0, text: null },
+})
+
+function ResultsHarness(props: { row: Query }) {
+  return <ResultsScreen
+    width={120}
+    height={24}
+    rows={[props.row]}
+    selected={0}
+    busy={false}
+    aggregate={false}
+    analytics={analyzeQueries([props.row])}
+    search=""
+    sort="time-desc"
+    actionFocus={0}
+    onActionFocus={() => {}}
+    onAction={() => {}}
+    onSelect={() => {}}
+    onInspect={() => {}}
+    onMove={() => {}}
+  />
+}
+
+test("blocked result rows use Tokyo Night red while retaining selected-row contrast", async () => {
+  const setup = await testRender(() => <ResultsHarness row={resultQuery("GRAVITY")} />, { width: 120, height: 24 })
+  try {
+    await setup.renderOnce()
+    const line = setup.captureSpans().lines.find((candidate) =>
+      candidate.spans.some((span) => span.text.includes("ads.example")),
+    )
+    const domain = line?.spans.find((span) => span.text.includes("ads.example"))
+    expect(domain?.fg.toInts()).toEqual([247, 118, 142, 255])
+    expect(domain?.bg.toInts()).toEqual([61, 89, 161, 255])
+    expect(setup.captureCharFrame()).toContain("> ")
+  } finally {
+    setup.renderer.destroy()
+  }
+})
+
+test("results action follows the selected query's BLOCK/UNBLOCK semantics", async () => {
+  for (const [status, label] of [["FORWARDED", "BLOCK"], ["DENYLIST", "UNBLOCK"]] as const) {
+    const setup = await testRender(() => <ResultsHarness row={resultQuery(status)} />, { width: 120, height: 24 })
+    try {
+      await setup.renderOnce()
+      const frame = setup.captureCharFrame()
+      expect(frame).toContain(label)
+      if (label === "BLOCK") expect(frame).not.toContain("UNBLOCK")
+    } finally {
+      setup.renderer.destroy()
+    }
+  }
+})
+
+test("domain mutation requires the explicit confirmation control", async () => {
+  let confirmations = 0
+  let cancellations = 0
+  const setup = await testRender(() => <DomainActionDialog
+    domain="ads.example"
+    action="block"
+    focus={0}
+    onFocus={() => {}}
+    onConfirm={() => { confirmations += 1 }}
+    onCancel={() => { cancellations += 1 }}
+  />, { width: 80, height: 16 })
+  try {
+    await setup.renderOnce()
+    expect(confirmations).toBe(0)
+    const lines = setup.captureCharFrame().split("\n")
+    const confirmY = lines.findIndex((line) => line.includes("CONFIRM BLOCK"))
+    const confirmX = lines[confirmY]?.indexOf("CONFIRM BLOCK") ?? -1
+    expect(confirmY).toBeGreaterThanOrEqual(0)
+    expect(confirmX).toBeGreaterThanOrEqual(0)
+    await setup.mockMouse.click(confirmX, confirmY)
+    expect(confirmations).toBe(1)
+    expect(cancellations).toBe(0)
+  } finally {
+    setup.renderer.destroy()
+  }
+})
+
+test("cancelling the domain confirmation never invokes the mutation callback", async () => {
+  let confirmations = 0
+  let cancellations = 0
+  const setup = await testRender(() => <DomainActionDialog
+    domain="safe.example"
+    action="unblock"
+    focus={1}
+    onFocus={() => {}}
+    onConfirm={() => { confirmations += 1 }}
+    onCancel={() => { cancellations += 1 }}
+  />, { width: 80, height: 16 })
+  try {
+    await setup.renderOnce()
+    const lines = setup.captureCharFrame().split("\n")
+    const cancelY = lines.findIndex((line) => line.includes("CANCEL"))
+    const cancelX = lines[cancelY]?.indexOf("CANCEL") ?? -1
+    await setup.mockMouse.click(cancelX, cancelY)
+    expect(confirmations).toBe(0)
+    expect(cancellations).toBe(1)
+  } finally {
+    setup.renderer.destroy()
   }
 })

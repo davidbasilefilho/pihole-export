@@ -7,6 +7,7 @@ export type Screen =
   | "inspect"
   | "help"
   | "confirm"
+  | "domain-confirm"
   | "export"
   | "suggestions"
   | "search"
@@ -40,6 +41,7 @@ export const resultActions = [
   "SORT",
   "AGGREGATE",
   "REFINE",
+  "BLOCK",
   "EXPORT",
   "PRESETS",
   "FILTERS",

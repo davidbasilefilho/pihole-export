@@ -24,6 +24,14 @@ import { QuerySpec, serializeQuery } from "./query";
 
 const LoginBody = Schema.Struct({ password: Schema.String, totp: Schema.optional(Schema.String) });
 const TookOnly = Schema.Struct({ took: Schema.optional(Schema.Number) });
+const DomainMutationBody = Schema.Struct({
+  domain: Schema.String,
+  comment: Schema.Literal("Added from Query Log"),
+  type: Schema.Literal("deny", "allow"),
+  kind: Schema.Literal("exact"),
+});
+
+export type DomainMutationAction = "block" | "unblock";
 
 export interface AuthenticatedConnection {
   readonly baseUrl: string;
@@ -141,6 +149,26 @@ export const fetchSuggestions = (connection: AuthenticatedConnection) =>
       connection.session.sid,
     ),
   ).pipe(Effect.map((response): Suggestions => response.suggestions));
+
+export const mutateDomain = (
+  connection: AuthenticatedConnection,
+  domain: string,
+  action: DomainMutationAction,
+) =>
+  Effect.gen(function* () {
+    const type = action === "block" ? "deny" : "allow";
+    const request = yield* HttpClientRequest.post(
+      `${connection.baseUrl}/api/domains/${type}/exact`,
+    ).pipe(
+      HttpClientRequest.schemaBodyJson(DomainMutationBody)({
+        domain,
+        comment: "Added from Query Log",
+        type,
+        kind: "exact",
+      }),
+    );
+    yield* expect(Schema.Unknown, authenticated(request, connection.session.sid));
+  });
 
 export interface QueryPage {
   readonly queries: ReadonlyArray<Query>;

@@ -2,6 +2,7 @@
 import { For } from "solid-js";
 
 import type { QueryAnalytics } from "../../lib/analytics";
+import { isBlockedQuery } from "../../lib/analytics";
 import type { Query } from "../../lib/model";
 import type { ResultSort } from "../../lib/query";
 import { resultActions } from "../focus";
@@ -37,14 +38,15 @@ export function ResultsScreen(props: {
       index: start + offset,
     }));
   };
-  const actionLabel = (action: (typeof resultActions)[number]) =>
-    action === "SORT"
-      ? `SORT: ${props.sort.toUpperCase()}`
-      : action === "AGGREGATE"
-        ? props.aggregate
-          ? "RESULTS"
-          : "AGGREGATE"
-        : action;
+  const actionLabel = (action: (typeof resultActions)[number]) => {
+    if (action === "SORT") return `SORT: ${props.sort.toUpperCase()}`;
+    if (action === "AGGREGATE") return props.aggregate ? "RESULTS" : "AGGREGATE";
+    if (action === "BLOCK") {
+      const row = props.rows[props.selected];
+      return row !== undefined && isBlockedQuery(row) ? "UNBLOCK" : "BLOCK";
+    }
+    return action;
+  };
   const aggregateColumn = (title: string, rows: QueryAnalytics["domains"]) => (
     <box flexDirection="column" flexGrow={1} minWidth={24}>
       <text fg={theme.cyan}>{title}</text>
@@ -118,7 +120,7 @@ export function ResultsScreen(props: {
                   if (index === props.selected) props.onInspect();
                   else props.onSelect(index);
                 }}>
-                <text fg={theme.fg}>
+                <text fg={isBlockedQuery(row) ? theme.red : theme.fg}>
                   {index === props.selected ? "> " : "  "}
                   {tableLine(row, props.width)}
                 </text>

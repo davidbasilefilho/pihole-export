@@ -1,6 +1,7 @@
 /** @jsxImportSource @opentui/solid */
 import { For } from "solid-js";
 
+import type { DomainMutationAction } from "../lib/api";
 import type { ExportFormat, Query, QueryPreset } from "../lib/model";
 import type { RefinableField } from "../lib/query";
 import { ActionButton, Field, Modal, Segmented } from "./primitives";
@@ -24,6 +25,44 @@ export function ConfirmDialog(props: {
           tone="primary"
           onFocus={() => props.onFocus(0)}
           onPress={props.onAccept}
+        />
+        <ActionButton
+          label="CANCEL"
+          focused={props.focus === 1}
+          onFocus={() => props.onFocus(1)}
+          onPress={props.onCancel}
+        />
+      </box>
+    </Modal>
+  );
+}
+
+export function DomainActionDialog(props: {
+  readonly domain: string;
+  readonly action: DomainMutationAction;
+  readonly focus: number;
+  readonly onFocus: (index: number) => void;
+  readonly onConfirm: () => void;
+  readonly onCancel: () => void;
+}) {
+  const label = () => props.action.toUpperCase();
+  return (
+    <Modal title={`${label()} DOMAIN`} color={theme.red} width="80%">
+      <text>
+        {label()} {props.domain}?
+      </text>
+      <text fg={theme.muted}>
+        {props.action === "block"
+          ? "Add this exact domain to Pi-hole's deny list."
+          : "Add this exact domain to Pi-hole's allow list."}
+      </text>
+      <box flexDirection="row" gap={1}>
+        <ActionButton
+          label={`CONFIRM ${label()}`}
+          focused={props.focus === 0}
+          tone="danger"
+          onFocus={() => props.onFocus(0)}
+          onPress={props.onConfirm}
         />
         <ActionButton
           label="CANCEL"
@@ -317,8 +356,8 @@ export function HelpDialog(props: { readonly onClose: () => void }) {
             Tab / Shift+Tab traverse every control. Mouse click follows the same focus state.
           </text>
           <text>↑/↓, j/k navigate · Enter inspect/activate · mouse wheel scrolls lists.</text>
-          <text>/ search · s sort · a aggregate · x refine · e export · p presets.</text>
-          <text>f filters · r rerun · ? help · Esc back/cancel · q quit.</text>
+          <text>/ search · s sort · a aggregate · x refine · Ctrl+B block/unblock · e export.</text>
+          <text>p presets · f filters · r rerun · ? help · Esc back/cancel · q quit.</text>
           <text>Ctrl+Space opens Pi-hole suggestions while editing a supported filter.</text>
         </box>
       </scrollbox>

@@ -1,3 +1,4 @@
+import type { KeyEvent } from "@opentui/core";
 import { useKeyboard } from "@opentui/solid";
 
 import type { Screen } from "./focus";
@@ -28,6 +29,8 @@ export interface WorkbenchKeyboard {
   readonly applySuggestion: () => void;
   readonly showFilters: () => void;
   readonly acceptConfirm: () => void;
+  readonly acceptDomainMutation: () => void;
+  readonly cancelDomainMutation: () => void;
   readonly showResults: () => void;
   readonly activateInspect: () => void;
   readonly activateSearch: () => void;
@@ -40,100 +43,115 @@ export interface WorkbenchKeyboard {
   readonly closeOverlay: () => void;
 }
 
+export const handleWorkbenchKey = (actions: WorkbenchKeyboard, key: KeyEvent) => {
+  const current = actions.screen();
+  if (key.ctrl && key.name === "c") return actions.quit();
+  if (current === "connect") {
+    if (key.name === "tab") {
+      key.preventDefault();
+      actions.moveConnectFocus(key.shift ? -1 : 1);
+    } else if (key.name === "escape") actions.quit();
+    else if (
+      actions.connectFocus() === "scheme" &&
+      ["left", "right", "space", "return"].includes(key.name)
+    )
+      actions.toggleScheme();
+    else if (
+      actions.connectFocus() === "auth" &&
+      ["left", "right", "space", "return"].includes(key.name)
+    )
+      actions.cycleAuth(key.name === "left" ? -1 : 1);
+    else if (actions.connectFocus() === "connect" && key.name === "return") actions.connect();
+    return;
+  }
+  if (current === "filters") {
+    if (key.name === "tab") {
+      key.preventDefault();
+      actions.moveFilterFocus(key.shift ? -1 : 1);
+    } else if (key.name === "escape") actions.quit();
+    else if (key.ctrl && key.name === "space") actions.openSuggestions();
+    else if (actions.filterFocus() === 11 && ["space", "return"].includes(key.name))
+      actions.toggleDisk();
+    else if (actions.filterFocus() === 12 && key.name === "return") actions.openPresets();
+    else if (actions.filterFocus() === 13 && key.name === "return") actions.submitFilters();
+    return;
+  }
+  if (current === "results") {
+    if (actions.busy() && key.name === "escape") return actions.stopWork();
+    if (key.name === "tab") {
+      key.preventDefault();
+      actions.moveResultFocus(key.shift ? -1 : 1);
+    } else if (key.name === "down" || key.name === "j") actions.moveSelection(1);
+    else if (key.name === "up" || key.name === "k") actions.moveSelection(-1);
+    else if (key.name === "return") actions.activateResult();
+    else if (key.name === "/") actions.resultAction(0);
+    else if (key.name === "s") actions.resultAction(1);
+    else if (key.name === "a") actions.resultAction(2);
+    else if (key.name === "x") actions.resultAction(3);
+    else if (key.ctrl && key.name === "b") {
+      key.preventDefault();
+      actions.resultAction(4);
+    } else if (key.name === "e") {
+      key.preventDefault();
+      actions.resultAction(5);
+    } else if (key.name === "p") actions.resultAction(6);
+    else if (key.name === "f" || key.name === "escape") actions.resultAction(7);
+    else if (key.name === "?") actions.resultAction(8);
+    else if (key.name === "r") actions.rerun();
+    else if (key.name === "q") actions.quit();
+    return;
+  }
+  if (current === "suggestions") {
+    if (key.name === "tab") actions.moveDialogFocus(key.shift ? -1 : 1, 3);
+    else if (key.name === "down" || key.name === "j") actions.moveSuggestion(1);
+    else if (key.name === "up" || key.name === "k") actions.moveSuggestion(-1);
+    else if (key.name === "return") actions.applySuggestion();
+    else if (key.name === "escape") actions.showFilters();
+    return;
+  }
+  if (current === "confirm") {
+    if (key.name === "tab") actions.moveDialogFocus(key.shift ? -1 : 1, 2);
+    else if (key.name === "return") actions.acceptConfirm();
+    else if (key.name === "escape" || key.name === "n") actions.showFilters();
+    return;
+  }
+  if (current === "domain-confirm") {
+    if (key.name === "tab") {
+      key.preventDefault();
+      actions.moveDialogFocus(key.shift ? -1 : 1, 2);
+    } else if (key.name === "return") actions.acceptDomainMutation();
+    else if (key.name === "escape") actions.cancelDomainMutation();
+    return;
+  }
+  if (current === "inspect") {
+    if (key.name === "tab") actions.moveDialogFocus(key.shift ? -1 : 1, 7);
+    else if (key.name === "escape") actions.showResults();
+    else if (key.name === "return") actions.activateInspect();
+    return;
+  }
+  if (current === "search") {
+    if (key.name === "tab") actions.moveDialogFocus(key.shift ? -1 : 1, 4);
+    else if (key.name === "escape") actions.showResults();
+    else if (key.name === "return") actions.activateSearch();
+    return;
+  }
+  if (current === "export") {
+    if (key.name === "tab") actions.moveDialogFocus(key.shift ? -1 : 1, 4);
+    else if (key.name === "escape") actions.cancelExport();
+    else if (["left", "right", "space"].includes(key.name))
+      actions.cycleExportFormat(key.name === "left" ? -1 : 1);
+    else if (key.name === "return") actions.exportRows();
+    return;
+  }
+  if (current === "presets") {
+    if (key.name === "tab")
+      actions.moveDialogFocus(key.shift ? -1 : 1, actions.presetControlCount());
+    else if (key.name === "escape") actions.closePreset();
+    else if (key.name === "return") actions.activatePreset();
+    return;
+  }
+  if (key.name === "escape" || key.name === "q" || key.name === "return") actions.closeOverlay();
+};
+
 export const useWorkbenchKeyboard = (actions: WorkbenchKeyboard) =>
-  useKeyboard((key) => {
-    const current = actions.screen();
-    if (key.ctrl && key.name === "c") return actions.quit();
-    if (current === "connect") {
-      if (key.name === "tab") {
-        key.preventDefault();
-        actions.moveConnectFocus(key.shift ? -1 : 1);
-      } else if (key.name === "escape") actions.quit();
-      else if (
-        actions.connectFocus() === "scheme" &&
-        ["left", "right", "space", "return"].includes(key.name)
-      )
-        actions.toggleScheme();
-      else if (
-        actions.connectFocus() === "auth" &&
-        ["left", "right", "space", "return"].includes(key.name)
-      )
-        actions.cycleAuth(key.name === "left" ? -1 : 1);
-      else if (actions.connectFocus() === "connect" && key.name === "return") actions.connect();
-      return;
-    }
-    if (current === "filters") {
-      if (key.name === "tab") {
-        key.preventDefault();
-        actions.moveFilterFocus(key.shift ? -1 : 1);
-      } else if (key.name === "escape") actions.quit();
-      else if (key.ctrl && key.name === "space") actions.openSuggestions();
-      else if (actions.filterFocus() === 11 && ["space", "return"].includes(key.name))
-        actions.toggleDisk();
-      else if (actions.filterFocus() === 12 && key.name === "return") actions.openPresets();
-      else if (actions.filterFocus() === 13 && key.name === "return") actions.submitFilters();
-      return;
-    }
-    if (current === "results") {
-      if (actions.busy() && key.name === "escape") return actions.stopWork();
-      if (key.name === "tab") {
-        key.preventDefault();
-        actions.moveResultFocus(key.shift ? -1 : 1);
-      } else if (key.name === "down" || key.name === "j") actions.moveSelection(1);
-      else if (key.name === "up" || key.name === "k") actions.moveSelection(-1);
-      else if (key.name === "return") actions.activateResult();
-      else if (key.name === "/") actions.resultAction(0);
-      else if (key.name === "s") actions.resultAction(1);
-      else if (key.name === "a") actions.resultAction(2);
-      else if (key.name === "x") actions.resultAction(3);
-      else if (key.name === "e") actions.resultAction(4);
-      else if (key.name === "p") actions.resultAction(5);
-      else if (key.name === "f" || key.name === "escape") actions.resultAction(6);
-      else if (key.name === "?") actions.resultAction(7);
-      else if (key.name === "r") actions.rerun();
-      else if (key.name === "q") actions.quit();
-      return;
-    }
-    if (current === "suggestions") {
-      if (key.name === "tab") actions.moveDialogFocus(key.shift ? -1 : 1, 3);
-      else if (key.name === "down" || key.name === "j") actions.moveSuggestion(1);
-      else if (key.name === "up" || key.name === "k") actions.moveSuggestion(-1);
-      else if (key.name === "return") actions.applySuggestion();
-      else if (key.name === "escape") actions.showFilters();
-      return;
-    }
-    if (current === "confirm") {
-      if (key.name === "tab") actions.moveDialogFocus(key.shift ? -1 : 1, 2);
-      else if (key.name === "return") actions.acceptConfirm();
-      else if (key.name === "escape" || key.name === "n") actions.showFilters();
-      return;
-    }
-    if (current === "inspect") {
-      if (key.name === "tab") actions.moveDialogFocus(key.shift ? -1 : 1, 7);
-      else if (key.name === "escape") actions.showResults();
-      else if (key.name === "return") actions.activateInspect();
-      return;
-    }
-    if (current === "search") {
-      if (key.name === "tab") actions.moveDialogFocus(key.shift ? -1 : 1, 4);
-      else if (key.name === "escape") actions.showResults();
-      else if (key.name === "return") actions.activateSearch();
-      return;
-    }
-    if (current === "export") {
-      if (key.name === "tab") actions.moveDialogFocus(key.shift ? -1 : 1, 4);
-      else if (key.name === "escape") actions.cancelExport();
-      else if (["left", "right", "space"].includes(key.name))
-        actions.cycleExportFormat(key.name === "left" ? -1 : 1);
-      else if (key.name === "return") actions.exportRows();
-      return;
-    }
-    if (current === "presets") {
-      if (key.name === "tab")
-        actions.moveDialogFocus(key.shift ? -1 : 1, actions.presetControlCount());
-      else if (key.name === "escape") actions.closePreset();
-      else if (key.name === "return") actions.activatePreset();
-      return;
-    }
-    if (key.name === "escape" || key.name === "q" || key.name === "return") actions.closeOverlay();
-  });
+  useKeyboard((key) => handleWorkbenchKey(actions, key));
