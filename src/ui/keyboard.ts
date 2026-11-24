@@ -116,8 +116,10 @@ export const handleWorkbenchKey = (actions: WorkbenchKeyboard, key: KeyEvent) =>
   }
   if (current === "confirm") {
     if (key.name === "tab") actions.moveDialogFocus(key.shift ? -1 : 1, 2);
-    else if (key.name === "return") actions.acceptConfirm();
-    else if (key.name === "escape" || key.name === "n") actions.showFilters();
+    else if (key.name === "return") {
+      key.preventDefault();
+      actions.acceptConfirm();
+    } else if (key.name === "escape" || key.name === "n") actions.showFilters();
     return;
   }
   if (current === "domain-confirm") {

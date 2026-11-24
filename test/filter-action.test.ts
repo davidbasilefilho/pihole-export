@@ -44,3 +44,11 @@ test("keyboard activates direct export without submitting a table query", () => 
   } as WorkbenchKeyboard, { name: "return", ctrl: false, preventDefault: () => { calls.push("consume"); } } as KeyEvent);
   expect(calls).toEqual(["consume", "export"]);
 });
+
+
+test("confirmation consumes Enter before opening the destination input", () => {
+  const calls: string[] = [];
+  handleWorkbenchKey({ screen: () => "confirm", acceptConfirm: () => { calls.push("confirm"); },
+  } as WorkbenchKeyboard, { name: "return", ctrl: false, preventDefault: () => { calls.push("consume"); } } as KeyEvent);
+  expect(calls).toEqual(["consume", "confirm"]);
+});

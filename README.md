@@ -116,6 +116,23 @@ mise run check
 
 The suite covers authentication success/failure, runtime schemas, every filter and combinations, timezone/DST conversion, inclusive/exclusive boundaries, 10,005-row pagination, complete export counts, CSV escaping, the heavy-query guard, typed failures/cancellation, and OpenTUI startup rendering.
 
+### Interactive PTY regression
+
+After `bun run compile`, exercise the compiled TUI through a real pseudo-terminal:
+
+```sh
+python3 -m venv /tmp/pihole-export-pty-venv
+/tmp/pihole-export-pty-venv/bin/pip install pexpect==4.9.0 pyte==0.8.2
+/tmp/pihole-export-pty-venv/bin/python test/pty_export.py
+```
+
+This Linux/macOS smoke test starts its own HTTP fixture on `127.0.0.1` with one
+synthetic row. It checks direct export without a preliminary query, the heavy-query
+confirmation, a destination with spaces, CSV readback, cancellation before writing,
+and cancellation of an in-flight request. It uses a three-day interval and a temporary
+directory that is removed afterward. It never connects to a real Pi-hole. The
+optional first argument is the path to the compiled exporter binary.
+
 ## Security
 
 Passwords, TOTP values, and session IDs are never written to configuration, logs, or exports. Network failures deliberately omit request details so credentials cannot leak through error rendering. CSV files can contain sensitive DNS history; protect their destination and delete them when no longer needed.
