@@ -30,6 +30,8 @@ pub(crate) struct Diagnostic {
     phase_started: Instant,
     phase: &'static str,
     network_decode_ms: u128,
+    pub network_us: u64,
+    pub decode_us: u64,
     write_ms: u128,
     finalize_ms: u128,
     pub pages: usize,
@@ -88,6 +90,8 @@ impl Diagnostic {
             phase_started: Instant::now(),
             phase: "preparing",
             network_decode_ms: 0,
+            network_us: 0,
+            decode_us: 0,
             write_ms: 0,
             finalize_ms: 0,
             pages: 0,
@@ -118,7 +122,7 @@ impl Diagnostic {
         self.record(outcome, cause);
     }
     fn record(&mut self, outcome: &'static str, cause: Option<&'static str>) {
-        let value = json!({"timestamp":chrono::Utc::now().to_rfc3339(), "version":env!("CARGO_PKG_VERSION"), "operation_id":self.id, "operation":self.operation, "format":self.format, "outcome":outcome, "cause":cause, "total_ms":self.started.elapsed().as_millis(), "network_decode_ms":self.network_decode_ms, "write_ms":self.write_ms, "finalize_ms":self.finalize_ms, "pages":self.pages, "rows":self.rows});
+        let value = json!({"timestamp":chrono::Utc::now().to_rfc3339(), "version":env!("CARGO_PKG_VERSION"), "operation_id":self.id, "operation":self.operation, "format":self.format, "outcome":outcome, "cause":cause, "total_ms":self.started.elapsed().as_millis(), "network_decode_ms":self.network_decode_ms, "network_us":self.network_us, "decode_us":self.decode_us, "write_ms":self.write_ms, "finalize_ms":self.finalize_ms, "pages":self.pages, "rows":self.rows});
         if let Some(file) = self.file.as_mut() {
             let _ = writeln!(file, "{value}");
         }

@@ -1,15 +1,54 @@
 name: Stable Release
 
 on:
+  workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: Exact validated main commit (requires successful CI and all six dev assets)
+        required: true
+        type: string
   push:
     tags:
       - "v*"
 
 permissions:
   contents: write
+  actions: read
+
+concurrency:
+  group: stable-release
+  cancel-in-progress: false
 
 jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Verify authorized release source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+        run: |
+          set -euo pipefail
+          VERSION="$(jq -r .version package.json)"
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            test "$VERSION" = 0.2.0
+            test "$GITHUB_REF" = refs/heads/main
+            test "$GITHUB_SHA" = "$EXPECTED_SHA"
+            test "$(gh api repos/$GITHUB_REPOSITORY/git/ref/heads/main --jq .object.sha)" = "$EXPECTED_SHA"
+            gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$GITHUB_SHA&event=push" --jq '.workflow_runs | any(.conclusion == "success")' | grep -qx true
+            gh release view "dev-${GITHUB_SHA:0:7}" --json assets > /tmp/dev-assets.json
+            python - <<'CHECK'
+          import json, os
+          names = {a['name'] for a in json.load(open('/tmp/dev-assets.json'))['assets']}
+          expected = {f'pihole-export-{app}-v0.2.0-dev-{os.environ["GITHUB_SHA"]}-{platform}{ext}' for app in ('gui','tui') for platform,ext in [('linux-x64',''),('darwin-arm64',''),('windows-x64','.exe')]}
+          assert names == expected, (names, expected)
+          CHECK
+          else
+            test "$GITHUB_REF_NAME" = "v$VERSION"
+          fi
   build:
+    needs: preflight
     uses: ./.github/workflows/packages.yml
 
   release:
@@ -30,18 +69,28 @@ jobs:
         run: |
           VERSION="$(jq -r .version package.json)"
 
-          if [ "$GITHUB_REF_NAME" != "v$VERSION" ]; then
+          if [ "$GITHUB_EVENT_NAME" != workflow_dispatch ] && [ "$GITHUB_REF_NAME" != "v$VERSION" ]; then
             echo "Tag $GITHUB_REF_NAME does not match package version v$VERSION"
             exit 1
           fi
 
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
+      - name: Create new validated tag for manual stable release
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(gh api repos/$GITHUB_REPOSITORY/git/ref/heads/main --jq .object.sha)" = "$GITHUB_SHA"
+          # POST rejects an existing tag; never update, delete or reuse it.
+          gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" -f ref=refs/tags/v0.2.0 -f sha="$GITHUB_SHA"
+
       - name: Create release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" \
+          gh release create "v${{ steps.version.outputs.version }}" \
             artifacts/pihole-export-* \
             --verify-tag \
             --title "pihole-export v${{ steps.version.outputs.version }}" \

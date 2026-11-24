@@ -2,11 +2,23 @@ use crate::{Auth, Connection, Error, Page, Result, Session, Spec};
 use reqwest::{Client, Method, Url};
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
-use std::time::Duration;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{Duration, Instant};
 use tokio_util::sync::CancellationToken;
 
+struct Timer<'a>(&'a AtomicU64, Instant);
+impl Drop for Timer<'_> {
+    fn drop(&mut self) {
+        self.0.fetch_add(
+            self.1.elapsed().as_micros().min(u64::MAX as u128) as u64,
+            Ordering::Relaxed,
+        );
+    }
+}
 pub struct Api {
     client: Client,
+    network_us: AtomicU64,
+    decode_us: AtomicU64,
     pub cancel: CancellationToken,
 }
 impl Api {
@@ -17,7 +29,12 @@ impl Api {
             .timeout(Duration::from_secs(300))
             .build()
             .map_err(|_| Error::new("NetworkError", "Unable to initialize HTTP client"))?;
-        Ok(Self { client, cancel })
+        Ok(Self {
+            client,
+            cancel,
+            network_us: AtomicU64::new(0),
+            decode_us: AtomicU64::new(0),
+        })
     }
     pub async fn request<T: DeserializeOwned>(
         &self,
@@ -26,6 +43,7 @@ impl Api {
         sid: Option<&str>,
         body: Option<Value>,
     ) -> Result<T> {
+        let network_timer = Timer(&self.network_us, Instant::now());
         let mut response = None;
         let mut timed_out = false;
         for _ in 0..3 {
@@ -67,6 +85,8 @@ impl Api {
             () = self.cancel.cancelled() => return Err(Error::cancelled()),
             result = response.bytes() => result.map_err(|_| Error::new("DecodeError", "Invalid API JSON response"))?,
         };
+        drop(network_timer);
+        let _decode_timer = Timer(&self.decode_us, Instant::now());
         if status.is_success() {
             return serde_json::from_slice(&bytes)
                 .map_err(|_| Error::new("DecodeError", "Invalid API response schema"));
@@ -94,6 +114,21 @@ impl Api {
         }
         serde_json::from_value(value)
             .map_err(|_| Error::new("DecodeError", "Invalid API response schema"))
+    }
+    pub(crate) fn timings(&self) -> (u64, u64) {
+        (
+            self.network_us.load(Ordering::Relaxed),
+            self.decode_us.load(Ordering::Relaxed),
+        )
+    }
+    pub(crate) fn record_timings(
+        &self,
+        log: &mut crate::diagnostics::Diagnostic,
+        before: (u64, u64),
+    ) {
+        let after = self.timings();
+        log.network_us = after.0.saturating_sub(before.0);
+        log.decode_us = after.1.saturating_sub(before.1);
     }
     pub async fn authenticate(&self, base: &str, auth: &Auth) -> Result<Connection> {
         let (method, sid, body) = match auth.auth_method.as_str() {
@@ -164,8 +199,10 @@ impl Api {
     /// Complete interactive result, with sequential pages over one pooled HTTP client.
     /// The caller already retains all rows for the workbench; disk export stays streaming.
     pub async fn query(&self, connection: &Connection, spec: &Spec) -> Result<Vec<crate::Query>> {
+        let before = self.timings();
         let mut log = crate::diagnostics::Diagnostic::new("query", "none");
         let result = self.query_tracked(connection, spec, &mut log).await;
+        self.record_timings(&mut log, before);
         log.finish(&result);
         result
     }
@@ -202,6 +239,7 @@ impl Api {
         cursor: Option<i64>,
         length: usize,
     ) -> Result<Page> {
+        let before = self.timings();
         let mut log = crate::diagnostics::Diagnostic::new("query_page", "none");
         log.phase("waiting");
         let result = self.page(connection, spec, start, cursor, length).await;
@@ -209,6 +247,7 @@ impl Api {
             log.pages = 1;
             log.rows = page.queries.len();
         }
+        self.record_timings(&mut log, before);
         log.finish(&result);
         result
     }
@@ -318,6 +357,8 @@ mod timeout_tests {
                 .build()
                 .unwrap(),
             cancel: CancellationToken::new(),
+            network_us: AtomicU64::new(0),
+            decode_us: AtomicU64::new(0),
         };
         let error = api
             .request::<Value>(

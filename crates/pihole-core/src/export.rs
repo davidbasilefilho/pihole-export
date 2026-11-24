@@ -287,10 +287,12 @@ impl Api {
         format: &str,
         progress: impl FnMut(&'static str, usize),
     ) -> Result<Value> {
+        let before = self.timings();
         let mut log = crate::diagnostics::Diagnostic::new("export", format);
         let result = self
             .export_tracked(connection, spec, path, format, progress, &mut log)
             .await;
+        self.record_timings(&mut log, before);
         log.finish(&result);
         result
     }
