@@ -19,6 +19,15 @@ fn launch() -> Result<i32, Box<dyn std::error::Error>> {
     let status = std::process::Command::new(&frontend)
         .args(std::env::args_os().skip(1))
         .env("PIHOLE_NATIVE_WORKER_EXE", executable)
+        // Keep Bun/native-addon extraction inside the already verified private directory.
+        .env("TEMP", directory.path())
+        .env("TMP", directory.path())
+        .env("TMPDIR", directory.path())
+        .env("BUN_TMPDIR", directory.path())
+        .env("BUN_RUNTIME_TRANSPILER_CACHE_PATH", "0")
+        .env_remove("OPENTUI_LIB_PATH")
+        .env_remove("BUN_OPTIONS")
+        .env_remove("NODE_OPTIONS")
         .status()?;
     Ok(status.code().unwrap_or(1))
 }

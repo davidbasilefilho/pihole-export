@@ -40,32 +40,36 @@ junctions and cloud placeholders), alternate data streams and unknown drive mapp
 are refused before input traversal. Keep the executable, working directory, TEMP/TMP,
 SQLite temporary directory and output on verified local drives too. The TUI launcher
 checks its executable, cwd and TEMP before extracting its private bundled frontend;
-the same EXE runs the native Rust worker. This does not establish physical isolation
+the same EXE runs the native Rust worker. Bundled frontend temporary/cache paths
+are confined to that private directory, and runtime preload/native-library overrides
+are ignored in the standalone launcher (development entry points remain separate). This does not establish physical isolation
 of SAN/iSCSI, VMs or shared underlying storage: the operator must verify that separately.
 Do not edit or replace paths while an export is running.
 
 ```powershell
 # On a separate Windows machine with an already available, consistent backup:
-.\pihole-export-tui-v0.2.0-windows-x64.exe --offline C:\Offline\snapshot.db `
+& '.\pihole-export-tui-<supported-build>-windows-x64.exe' --offline C:\Offline\snapshot.db `
   --coverage C:\Offline\coverage.json --isolated-backup `
   --from 2026-09-01 --until 2026-09-04 --timezone UTC `
   --format csv --output C:\Exports\history.csv
 ```
 
-The filename above is illustrative; use the downloaded build that includes Windows
+Replace `<supported-build>` with the exact downloaded artifact name containing Windows
 offline support (the original v0.2.0 stable build supports Linux offline CLI only).
 No consistent backup is assumed to exist. If it or trustworthy coverage/policy records
 are missing, stop: neither UI acquires a backup or falls back to the API.
 
 ## Inputs and coverage
 
-Provide absolute local paths without symlinks. The worker checks each path against
-Linux mount information before inspecting it, including output, local logs, working directory and SQLite temporary paths.
-The compiled offline CLI extracts its embedded worker only under checked local
-`/tmp`, ignoring TMPDIR for extraction.
-Known network/automount/unknown filesystem types, UNC/URL syntax and `/etc/pihole`
-are rejected. Ext2/3/4, XFS, Btrfs, ZFS, tmpfs and overlay are accepted only under
-the operator's isolation confirmation. The runtime's temporary directory and the
+Provide absolute local paths without symlinks. **On Linux only**, the worker checks
+each path against Linux mount information before inspecting it, including output,
+local logs, working directory and SQLite temporary paths. The compiled Linux CLI
+extracts its embedded worker only under checked local `/tmp`, ignoring TMPDIR for
+extraction. Windows uses the native drive checks and private temporary directory
+described above.
+On Linux, known network/automount/unknown filesystem types, UNC/URL syntax and
+`/etc/pihole` are rejected. Ext2/3/4, XFS, Btrfs, ZFS, tmpfs and overlay are accepted
+only under the operator's isolation confirmation. The runtime's temporary directory and the
 executable must also be on independent local storage; do not use a network HOME or
 TMPDIR. Keep the input directory private and unchanged during the operation.
 
@@ -75,7 +79,8 @@ read-only with `immutable=1` (no locking or sidecar creation), uses a read trans
 integrity and references, and verifies its SHA-256 before processing and again
 before publishing output. It never issues backup or attach commands.
 
-The snapshot cannot establish continuous historical coverage by itself. The first
+No retention default proves a year exists: use the actual retained, independently
+attested backup coverage. The snapshot cannot establish continuous historical coverage by itself. The first
 and last recorded queries do not prove that retention/deletion gaps are absent,
 and FTL's `ftl` timestamps are not a completeness certificate. Supply coverage
 metadata from the operator's **existing backup/retention records**, tied to the

@@ -66,7 +66,8 @@ with tempfile.TemporaryDirectory(prefix='pihole offline ') as temporary, ExitSta
     original = hashlib.sha256(snapshot.read_bytes()).hexdigest()
     env = dict(os.environ, LOCALAPPDATA=str(root / 'state'), TEMP=str(root), TMP=str(root),
                HTTP_PROXY='http://127.0.0.1:1', HTTPS_PROXY='http://127.0.0.1:1',
-               PIHOLE_PASSWORD='synthetic-never-use')
+               PIHOLE_PASSWORD='synthetic-never-use',
+               BUN_TMPDIR=r'\\localhost\never-open\temp', OPENTUI_LIB_PATH=r'\\localhost\never-open\addon.dll')
     args = ['--offline', str(snapshot), '--coverage', str(coverage), '--isolated-backup',
             '--from', '2026-09-01', '--until', '2026-09-04', '--timezone', 'UTC']
     timings = {}
