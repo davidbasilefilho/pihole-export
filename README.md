@@ -63,6 +63,41 @@ PIHOLE_PASSWORD='...' pihole-export --headless --host pi.hole \
 
 Use `PIHOLE_PASSWORD`, `PIHOLE_TOTP`, or `PIHOLE_SESSION_ID` for authentication. Secret command-line flags are deliberately rejected so credentials are not exposed in shell history or process listings.
 
+## Long exports on the Pi-hole server
+
+Run the exporter on the DNS server and point it at its local Pi-hole HTTP API.
+Use the existing `--output` option with an absolute path on that server's disk.
+For example (adjust the dates, API port, and existing destination directory):
+
+```sh
+pihole-export --headless --host 127.0.0.1 --auth password \
+  --from '2026-08-01 00:00:00' --until '2026-08-02 00:00:00' \
+  --timezone UTC --disk --format jsonl --output /mnt/archive/pihole/queries.jsonl
+```
+
+Supply `PIHOLE_PASSWORD` in the process environment. This still uses the supported
+Pi-hole v6 API over loopback; it does not open the FTL database or copy an export
+from a remote machine. Use a local filesystem destination to keep both ends on
+this server. The destination directory must already exist and be writable.
+Relative paths are resolved from the exporter's working directory.
+
+In the TUI, choose **EXPORT TO FILE** directly on the filters screen, confirm a
+heavy query when prompted, then select the format and destination. This streams
+the matching pages without fetching the full result table first. **FETCH QUERIES**
+still loads the complete result table for interactive analysis. Exporting from
+that table re-queries all matching rows, independent of local search and sort.
+
+Larger date ranges, including a year, are accepted, but only retained Pi-hole
+history can be exported. `--disk` requests on-disk history; it does not choose the
+output path or guarantee a year of retention. The CLI currently reports a row
+count, not the available retention interval. Headless runs do not prompt for the
+TUI's heavy-query confirmation, so choose the interval deliberately.
+
+Exports write directly to the destination: CSV/JSONL replace its contents and
+SQLite replaces its `queries` table. There is no resume checkpoint or atomic
+publication; an error or cancellation can leave a partial output (Parquet may
+lack its footer). Use a new filename for each run and check the exit status.
+
 ## Historical-query safety
 
 On-disk mode is slower and is normally needed beyond Pi-hole's in-memory history. The app asks for explicit confirmation only when the requested range exceeds 48 hours and date/time is the sole query filter:
@@ -80,6 +115,23 @@ mise run check
 ```
 
 The suite covers authentication success/failure, runtime schemas, every filter and combinations, timezone/DST conversion, inclusive/exclusive boundaries, 10,005-row pagination, complete export counts, CSV escaping, the heavy-query guard, typed failures/cancellation, and OpenTUI startup rendering.
+
+### Interactive PTY regression
+
+After `bun run compile`, exercise the compiled TUI through a real pseudo-terminal:
+
+```sh
+python3 -m venv /tmp/pihole-export-pty-venv
+/tmp/pihole-export-pty-venv/bin/pip install pexpect==4.9.0 pyte==0.8.2
+/tmp/pihole-export-pty-venv/bin/python test/pty_export.py
+```
+
+This Linux/macOS smoke test starts its own HTTP fixture on `127.0.0.1` with one
+synthetic row. It checks direct export without a preliminary query, the heavy-query
+confirmation, a destination with spaces, CSV readback, cancellation before writing,
+and cancellation of an in-flight request. It uses a three-day interval and a temporary
+directory that is removed afterward. It never connects to a real Pi-hole. The
+optional first argument is the path to the compiled exporter binary.
 
 ## Security
 

@@ -19,6 +19,7 @@ export function FilterScreen(props: {
   readonly onFocus: (index: number) => void;
   readonly onPresets: () => void;
   readonly onSubmit: () => void;
+  readonly onExport: () => void;
 }) {
   let scroll: ScrollBoxRenderable | undefined;
   const narrow = () => props.width < 88;
@@ -109,6 +110,12 @@ export function FilterScreen(props: {
               tone="primary"
               onFocus={() => props.onFocus(13)}
               onPress={props.onSubmit}
+            />
+            <ActionButton
+              label="EXPORT TO FILE"
+              focused={props.focus === 14}
+              onFocus={() => props.onFocus(14)}
+              onPress={props.onExport}
             />
           </box>
         </Section>

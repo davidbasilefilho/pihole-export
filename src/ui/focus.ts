@@ -35,7 +35,7 @@ export const moveIndex = (current: number, delta: number, count: number, wrap = 
       ? (current + delta + count) % count
       : Math.max(0, Math.min(count - 1, current + delta));
 
-export const filterControlCount = 14;
+export const filterControlCount = 15;
 export const resultActions = [
   "SEARCH",
   "SORT",
