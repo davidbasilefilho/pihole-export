@@ -180,8 +180,8 @@ rows/batches, write/finalization duration and local read time, without input/out
 paths, filters, host/IP, hash, credentials or DNS rows. An unavailable or
 unverifiable log location disables logging without failing the export or touching
 an unknown mount. JSON stdout contains the
-result, declared/observed coverage and local metrics; progress stays in the backend
-protocol for future UI consumers.
+result, declared/observed coverage and local metrics. The GUI/TUI offline forms
+consume real phase/row events and show elapsed time without extra requests.
 
 `test/offline_export.py` creates only short synthetic fixtures, copies the compiled
 standalone TUI/CLI executable into a clean directory and validates all four

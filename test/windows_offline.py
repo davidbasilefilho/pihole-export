@@ -148,7 +148,17 @@ with tempfile.TemporaryDirectory(prefix='pihole offline ') as temporary, ExitSta
         assert (root/'interactive.csv').read_bytes() == previous
         (evidence/'tui.txt').write_text('\n'.join(screen.display), encoding='utf-8')
     finally:
-        stopped.set(); child.terminate(force=True)
+        # Leave through the app so the native launcher reaps its child and removes its payload.
+        try:
+            send('\t\t\r'); send('\x1b')
+            deadline = time.monotonic() + 10
+            while child.isalive() and time.monotonic() < deadline: time.sleep(.05)
+        finally:
+            stopped.set()
+            if child.isalive():
+                subprocess.run(['taskkill','/PID',str(child.pid),'/T','/F'], capture_output=True)
+                child.terminate(force=True)
+
 
     if gui_source:
         # Rune's supported window-script drives a real window at the framework input boundary.
@@ -157,9 +167,9 @@ with tempfile.TemporaryDirectory(prefix='pihole offline ') as temporary, ExitSta
         t = .8
         values = ['2026-09-01','2026-09-04','UTC','','','','','','','','',str(root/'gui.csv'),str(snapshot),str(coverage)]
         for value in values:
-            events += [{'t':t,'shortcut':'ctrl+a'}, {'t':t+.05,'paste':value}, {'t':t+.1,'type':'key','name':'tab'}]
+            events += [{'t':t,'type':'key','name':'a','cmd':True}, {'t':t+.05,'paste':value}, {'t':t+.1,'type':'key','name':'tab'}]
             t += .25
-        events += [{'t':t,'key':'disk'}, {'t':t+.3,'key':'export'}, {'t':t+.6,'key':'confirm'}, {'t':t+5,'mark':'offline-complete'}]
+        events += [{'t':t,'key':'disk'}, {'t':t+.3,'key':'export'}, {'t':t+.6,'key':'confirm'}, {'t':t+5,'type':'mark','name':'offline-complete'}]
         script = root/'input.json'; script.write_text(json.dumps(events))
         with (evidence/'gui-script.txt').open('w') as log:
             process = subprocess.Popen([str(gui),'--native','--window-script',str(script),'--trace',str(evidence/'gui-native.jsonl')],cwd=root,env=env,stdout=log,stderr=subprocess.STDOUT)
