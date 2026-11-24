@@ -161,3 +161,61 @@ separate native executable assets. Linux GUI embeds its runtime payload in a nat
 launcher, extracting into a mode-0700 private temporary directory. The compiled TUI
 extracts embedded backend bytes into a private temporary directory, with exclusive
 creation and mode 0700 on Unix. Both clean up on normal exit. No Bun/Rust installation is required to run them.
+
+## Observable progress, input and measured work
+
+The direct export dialog shows elapsed time, `Export in progress. Please don’t cancel.`,
+and backend events for waiting on the API, writing a received page, and finalizing.
+The count includes rows processed by the writer, not a guessed server total or percent.
+No progress requests are sent to Pi-hole. Cancellation remains available. A CSV header
+can exist while the first response is pending; file size alone does not prove a stall.
+Timeouts and errors end the operation with the actual error message.
+
+The synthetic benchmark (`scripts/benchmark.py`, run through mise with
+`PIHOLE_BACKEND_PATH` pointing to the release backend) uses 20,000 generated rows in
+one day and five full-operation runs. On this Linux workspace, median complete query
+fell from 768 ms to 543 ms, and complete JSONL export from 230 ms to 111 ms.
+Both versions made exactly two requests, transferred 5,029,184 response bytes and had
+peak concurrency one. Query connections fell from two to one; export already reused
+one. Every export wrote all 20,000 rows / 6,108,890 bytes. These are local fixture
+measurements, not predictions for a production Pi-hole or disk. The changes eliminate
+intermediate JSON trees on successful HTTP responses, per-row JSONL key/value clones,
+and per-page subprocess/client creation for a complete interactive query. Disk export
+remains sequential with writer backpressure and page-bounded memory.
+
+Date fields clear once when focus enters, by keyboard or pointer. Date-only values
+(`DD/MM/YYYY` or ISO `YYYY-MM-DD`) mean midnight in the selected IANA zone. Explicit
+times keep their prior meaning; nonexistent/ambiguous local times and invalid dates
+remain errors. From stays inclusive, until exclusive, without those words in labels.
+
+Secret fields accept deliberate Ctrl+V, with native Cmd+V on macOS. OpenTUI uses its
+host clipboard API only on that key; bracketed terminal paste cancels a pending host
+read. Rune uses its native secure TextEdit clipboard route. Clipboard data is never
+logged or saved. Tests use synthetic strings only.
+
+Rune follows system theme each view and uses the supported Linux D-Bus portal feature
+for live appearance and reduced-motion updates. Windows/macOS use Rune's native
+preference sources. Missing portal signals use Rune's fallback (dark appearance when
+unknown), without polling the network. Status/confirmation feedback uses short opacity
+springs; reduced motion switches these off. Fields and focus do not slide or wait for
+animations. This app has one workbench, not separate routes. Theme/motion combinations
+are simulated in runtime tests; OS preference changes are not claimed as manually
+verified on all three desktops.
+
+Dev publication serializes only the publish job and skips a build whose SHA is no
+longer main immediately before publishing. Titles show commit UTC time, version and
+short SHA. Existing tags/releases/links are preserved; historical GitHub UI ordering
+is not rewritten by changing titles.
+
+The release API records dev-e5106e9 at commit 15:00:59 / published 15:03:00 UTC,
+and dev-0e2c7b3 at commit 15:16:44 / published 15:22:52 UTC on 2026-11-24. The
+public Releases page nevertheless showed the former first when checked. This is
+not evidence of an older run finishing later. The antirace guard prevents that
+future failure mode; it cannot promise control of GitHub's historical display order.
+
+FTL v6.9 [`queries.c`](https://github.com/pi-hole/FTL/blob/v6.9/src/api/queries.c#L986-L1016)
+continues counting filtered results after filling a page. Its cursor caps an ID;
+it is not keyset pagination. Increasing offsets can repeat server work. The local
+benchmark does not run FTL and cannot establish that server-side cost or diagnose
+a real installation. Sequential time windows remain an unvalidated hypothesis,
+not a new default; no unlimited page or concurrent prefetch is introduced.

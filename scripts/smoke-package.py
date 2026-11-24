@@ -59,6 +59,8 @@ try:
             else:
                 subprocess.run([str(binary),'--snap',str(evidence/'startup.png'),'--tree',str(evidence/'startup.json'),'--settle'],cwd=directory,env=env,check=True,timeout=90)
                 subprocess.run([str(binary),'--native','--trace',str(evidence/'native.jsonl'),'--frames','60'],cwd=directory,env=env,check=True,timeout=90)
+                for theme in ['light','dark']:
+                    subprocess.run([str(binary),'--theme',theme,'--snap',str(evidence/(theme+'.png')),'--settle'],cwd=directory,env=env,check=True,timeout=90)
                 assert (evidence/'startup.png').stat().st_size > 100
                 assert 'header' in (evidence/'native.jsonl').read_text()
             print('PASS extracted',asset.name,flush=True)

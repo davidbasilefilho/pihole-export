@@ -1,6 +1,8 @@
 /** @jsxImportSource @opentui/solid */
-import { For, type JSX } from "solid-js";
+import type { InputRenderable, TextRenderable } from "@opentui/core";
+import { For, onCleanup, type JSX } from "solid-js";
 
+import { secretPaste } from "./paste";
 import { theme } from "./theme";
 
 type Dimension = number | "auto" | `${number}%`;
@@ -13,6 +15,7 @@ export function Field(props: {
   readonly focused: boolean;
   readonly placeholder?: string;
   readonly secret?: boolean;
+  readonly clearOnFocus?: boolean;
   readonly width?: Dimension;
   readonly minWidth?: number;
   readonly flexGrow?: number;
@@ -20,6 +23,10 @@ export function Field(props: {
   readonly onInput: (value: string) => void;
   readonly onSubmit?: () => void;
 }) {
+  let input: InputRenderable | undefined;
+  let mask: TextRenderable | undefined;
+  const paste = secretPaste();
+  onCleanup(() => paste.dispose());
   return (
     <box
       flexDirection="column"
@@ -31,6 +38,31 @@ export function Field(props: {
       <text fg={props.focused ? theme.cyan : theme.fg}>{props.label}</text>
       <box backgroundColor={fieldBackground(props.focused)} paddingLeft={1} height={1}>
         <input
+          ref={(value) => {
+            input = value;
+            value.on("focused", () => {
+              if (props.clearOnFocus) {
+                value.value = "";
+                props.onInput("");
+              }
+            });
+          }}
+          onPaste={() => paste.cancel()}
+          onKeyDown={(event) => {
+            if (
+              props.secret &&
+              event.name === "v" &&
+              (event.ctrl || (process.platform === "darwin" && event.super))
+            ) {
+              event.preventDefault();
+              paste.request(
+                (text) => input?.insertText(text),
+                () => props.focused,
+              );
+            }
+          }}
+          selectionBg={props.secret ? fieldBackground(props.focused) : theme.blue}
+          selectionFg={props.secret ? fieldBackground(props.focused) : theme.fg}
           value={props.value}
           focused={props.focused}
           placeholder={props.placeholder ?? ""}
@@ -40,10 +72,14 @@ export function Field(props: {
           cursorColor={theme.blue}
           placeholderColor={theme.muted}
           onMouseDown={props.onFocus}
-          onInput={(value) => props.onInput(value)}
+          onInput={(value) => {
+            if (props.secret && mask) mask.content = "•".repeat(value.length);
+            props.onInput(value);
+          }}
           onSubmit={() => props.onSubmit?.()}
         />
         <text
+          ref={(value) => (mask = value)}
           position="absolute"
           left={1}
           fg={theme.fg}

@@ -37,7 +37,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libxkbcommon-dev libwayland-dev libxkbcommon-x11-0 libxcursor1 libxi6 libxrandr2 libxinerama1 libvulkan1 mesa-vulkan-drivers xvfb
+          sudo apt-get install -y libxkbcommon-dev libwayland-dev libxkbcommon-x11-0 libxcursor1 libxi6 libxrandr2 libxinerama1 libvulkan1 mesa-vulkan-drivers xvfb xclip xdotool
       - run: bun install --frozen-lockfile
       - run: mise run check
       - run: mise run test
@@ -49,7 +49,8 @@ jobs:
       - name: Run extracted GUI and headless TUI on Linux
         if: runner.os == 'Linux'
         timeout-minutes: 5
-        run: xvfb-run -a python scripts/smoke-package.py
+        run: |
+          xvfb-run -a sh -c 'python scripts/smoke-package.py && python scripts/native-paste.py' 
       - name: Run extracted GUI and headless TUI on macOS and Windows
         if: runner.os != 'Linux'
         timeout-minutes: 5

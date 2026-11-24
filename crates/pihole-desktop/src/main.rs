@@ -11,13 +11,13 @@ const LABELS: [&str; 15] = [
     "Pi-hole URL",
     "Password / session ID",
     "TOTP",
-    "From (local)",
-    "Until (exclusive)",
-    "Timezone",
-    "Domain",
-    "Client IP",
-    "Client name",
-    "Upstream",
+    "Timestamp from *",
+    "Timestamp until *",
+    "Timezone *",
+    "Domain †",
+    "Client IP †",
+    "Client name †",
+    "Upstream †",
     "Type",
     "Status",
     "Reply",
@@ -38,6 +38,7 @@ enum Output {
 }
 struct State {
     fields: [TextEdit; 15],
+    date_focused: [bool; 2],
     auth: usize,
     format: usize,
     disk: bool,
@@ -73,6 +74,7 @@ impl Default for State {
         fields[2].set_secure(true);
         Self {
             fields,
+            date_focused: [false; 2],
             auth: 0,
             format: 0,
             disk: true,
@@ -94,6 +96,19 @@ impl Drop for State {
     }
 }
 impl State {
+    fn sync_date_focus(&mut self) -> bool {
+        let mut changed = false;
+        for (slot, index) in [3, 4].into_iter().enumerate() {
+            let focused = self.fields[index].focused;
+            if focused && !self.date_focused[slot] {
+                self.fields[index].clear();
+                changed = true;
+            }
+            self.date_focused[slot] = focused;
+        }
+        changed
+    }
+
     fn spec(&self) -> pihole_core::Result<Spec> {
         let f = &self.fields;
         spec_from_form(
@@ -218,12 +233,24 @@ impl State {
 }
 fn view(s: &State, cx: &mut Cx<State>) -> El {
     let t = tok::theme(cx.system_dark());
+    let feedback = if cx.system_reduced_motion() {
+        rune::Transition::none()
+    } else {
+        rune::Transition::opacity().springs(rune::SpringPair::new(
+            rune::Spring::new(0.14, 0.0),
+            rune::Spring::new(0.10, 0.0),
+        ))
+    };
     let kit = Kit::from_palette(PaletteSeed {
         bg: t.bg,
         fg: t.text,
         accent: t.text,
     });
-    let mut form = col().w_full().gap(10.0);
+    let mut form = col().w_full().gap(10.0).child(
+        text("† At least one")
+            .font(type_::LABEL)
+            .color(t.text_secondary),
+    );
     for (i, label) in LABELS.iter().enumerate().take(15) {
         form = form.child(
             col()
@@ -241,7 +268,10 @@ fn view(s: &State, cx: &mut Cx<State>) -> El {
                         .fill(t.card)
                         .color(t.text)
                         .radius(6.0)
-                        .on_edit(move |s: &mut State| &mut s.fields[i]),
+                        .on_edit(move |s: &mut State| {
+                            s.sync_date_focus();
+                            &mut s.fields[i]
+                        }),
                 ),
         );
     }
@@ -272,7 +302,7 @@ fn view(s: &State, cx: &mut Cx<State>) -> El {
                 .child(
                     Button::new(if s.disk { "Disk: on" } else { "Disk: off" })
                         .disabled(s.busy)
-                        .on_press(|s: &mut State| s.disk = !s.disk)
+                        .on_press(|s: &mut State| s.disk.toggle())
                         .build(&kit)
                         .key("disk"),
                 ),
@@ -318,11 +348,14 @@ fn view(s: &State, cx: &mut Cx<State>) -> El {
                 ),
         )
         .child(
-            text(&s.status)
-                .key("status")
-                .font(type_::BODY)
-                .color(t.text)
-                .w_full(),
+            col().key("status").child(
+                text(&s.status)
+                    .key(format!("status-{}", s.status))
+                    .transition(feedback)
+                    .font(type_::BODY)
+                    .color(t.text)
+                    .w_full(),
+            ),
         );
     if s.pending.is_some() {
         root = root.child(
@@ -333,7 +366,8 @@ fn view(s: &State, cx: &mut Cx<State>) -> El {
                     }
                 })
                 .build(&kit)
-                .key("confirm"),
+                .key("confirm")
+                .transition(feedback),
         );
     }
     root.child(
@@ -346,6 +380,7 @@ fn view(s: &State, cx: &mut Cx<State>) -> El {
             .child(
                 text(&s.preview)
                     .key("results")
+                    .transition(feedback)
                     .font(type_::BODY.mono())
                     .color(t.text)
                     .w_full(),
@@ -355,7 +390,10 @@ fn view(s: &State, cx: &mut Cx<State>) -> El {
 fn main() {
     let mut spec = AppSpec::new("Pi-hole Export", (760.0, 900.0), State::default, view);
     spec.setup = Some(|s: &mut State, waker| s.latest.set_waker(waker));
-    spec.poll = Some(|s: &mut State, _, _| s.poll());
+    spec.poll = Some(|s: &mut State, _, _| {
+        let focus = s.sync_date_focus();
+        s.poll() || focus
+    });
     rune::run(spec);
 }
 
@@ -412,6 +450,79 @@ mod tests {
         assert_eq!(node(&tree, "field-0").unwrap()["name"], "Pi-hole URL");
     }
     #[test]
+    fn clipboard_theme_motion_and_date_focus() {
+        let mut rt = Runtime::new(State::default(), view, (760.0, 900.0), Env::default());
+        let clipboard = rune::clipboard::memory();
+        rt.use_clipboard(&clipboard);
+        clipboard.set_text("synthetic-paste");
+        rt.frame(0.0);
+        assert!(rt.state.fields[1].text.is_empty());
+        rt.update(|_, tx| tx.focus("field-1", true));
+        rt.frame(0.0);
+        rt.key(rune::KeyEvent {
+            key: rune::Key::Command('v'),
+            mods: rune::Mods {
+                cmd: true,
+                ..Default::default()
+            },
+        });
+        rt.frame(0.0);
+        rt.update(|_, _| {});
+        rt.frame(0.0);
+        assert!(rt.has_secure_focus());
+        assert_eq!(rt.state.fields[1].text, "synthetic-paste");
+        assert!(
+            !rt.accessibility_json()
+                .to_string()
+                .contains("synthetic-paste")
+        );
+        for dark in [false, true] {
+            for reduced in [false, true] {
+                rt.set_system_dark(dark);
+                rt.set_system_reduced_motion(reduced);
+                rt.update(|s, _| s.status = "Synthetic completion".into());
+                rt.frame(0.016);
+                rt.settle_all();
+                assert_eq!(rt.system_reduced_motion(), reduced);
+                assert!(rt.state.fields[1].focused);
+                assert!(
+                    !rt.accessibility_json()
+                        .to_string()
+                        .contains("synthetic-paste")
+                );
+            }
+        }
+        rt.update(|s, tx| {
+            s.fields[3] = TextEdit::new("01/09/2026");
+            tx.focus("field-3", true);
+        });
+        rt.frame(0.0);
+        rt.update(|s, _| {
+            s.sync_date_focus();
+        });
+        rt.frame(0.0);
+        assert!(rt.state.fields[3].text.is_empty());
+        rt.key(rune::KeyEvent {
+            key: rune::Key::Text("02/09/2026".into()),
+            mods: Default::default(),
+        });
+        rt.frame(0.0);
+        rt.update(|s, _| {
+            s.sync_date_focus();
+        });
+        rt.frame(0.0);
+        assert_eq!(rt.state.fields[3].text, "02/09/2026");
+        rt.update(|_, tx| tx.focus("field-4", true));
+        rt.frame(0.0);
+        rt.update(|_, tx| tx.focus("field-3", true));
+        rt.frame(0.0);
+        rt.update(|s, _| {
+            s.sync_date_focus();
+        });
+        rt.frame(0.0);
+        assert!(rt.state.fields[3].text.is_empty());
+    }
+    #[test]
     fn heavy_export_requires_confirmation_without_starting_worker() {
         let mut state = State::default();
         state.fields[3] = TextEdit::new("01/09/2026 00:00:00");
@@ -444,6 +555,7 @@ mod tests {
                     std::thread::sleep(Duration::from_millis(5));
                     continue;
                 };
+                socket.set_nonblocking(false).unwrap();
                 socket
                     .set_read_timeout(Some(Duration::from_secs(2)))
                     .unwrap();

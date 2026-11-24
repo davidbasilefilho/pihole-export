@@ -109,3 +109,26 @@ fn empty_exports_and_write_errors_and_cancellation() {
         assert!(Exporter::new(dir.path().join("missing/out").to_str().unwrap(), format).is_err());
     }
 }
+
+#[test]
+fn date_only_uses_local_midnight_and_rejects_invalid_or_missing_midnight() {
+    for (date, explicit, zone) in [
+        ("01/09/2026", "01/09/2026 00:00:00", "UTC"),
+        ("2026-09-01", "2026-09-01 00:00:00", "America/Sao_Paulo"),
+        ("2026-03-08", "2026-03-08 00:00:00", "America/New_York"),
+    ] {
+        assert_eq!(
+            local_time(date, zone).unwrap(),
+            local_time(explicit, zone).unwrap()
+        );
+    }
+    assert_eq!(
+        local_time("2026-03-09", "America/New_York").unwrap()
+            - local_time("2026-03-08", "America/New_York").unwrap(),
+        23.0 * 3600.0
+    );
+    for date in ["31/02/2026", "2026-02-30", "0000-01-01"] {
+        assert!(local_time(date, "UTC").is_err());
+    }
+    assert!(local_time("2011-12-30", "Pacific/Apia").is_err());
+}

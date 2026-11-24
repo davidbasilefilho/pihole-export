@@ -165,12 +165,13 @@ impl Exporter {
                 }
                 Sink::Jsonl(writer) => {
                     for cells in &data {
-                        let record: serde_json::Map<_, _> = COLUMNS
-                            .iter()
-                            .zip(cells)
-                            .map(|(name, v)| ((*name).into(), v.clone()))
-                            .collect();
-                        serde_json::to_writer(&mut *writer, &record)?;
+                        use serde::ser::{SerializeMap, Serializer};
+                        let mut serializer = serde_json::Serializer::new(&mut *writer);
+                        let mut record = serializer.serialize_map(Some(COLUMNS.len()))?;
+                        for (name, value) in COLUMNS.iter().zip(cells) {
+                            record.serialize_entry(name, value)?;
+                        }
+                        record.end()?;
                         writer.write_all(b"\n")?;
                     }
                     writer.flush()?;
@@ -275,14 +276,27 @@ impl Api {
         path: &str,
         format: &str,
     ) -> Result<Value> {
+        self.export_progress(connection, spec, path, format, |_, _| {})
+            .await
+    }
+    pub async fn export_progress(
+        &self,
+        connection: &Connection,
+        spec: &Spec,
+        path: &str,
+        format: &str,
+        mut progress: impl FnMut(&'static str, usize),
+    ) -> Result<Value> {
         spec.validate()?;
         let mut writer = Exporter::new(path, format)?;
         let (mut start, mut cursor) = (0, None);
         loop {
+            progress("waiting", start);
             let page = self.page(connection, spec, start, cursor, 10_000).await?;
             if cursor.is_none() {
                 cursor = page.cursor;
             }
+            progress("writing", start);
             writer.write(&page.queries, &self.cancel)?;
             start += page.queries.len();
             if page.queries.len() < 10_000 || start >= page.records_filtered {
@@ -292,6 +306,7 @@ impl Api {
         if self.cancel.is_cancelled() {
             return Err(Error::cancelled());
         }
+        progress("finalizing", start);
         writer.finish()
     }
 }

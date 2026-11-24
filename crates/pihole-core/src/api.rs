@@ -27,6 +27,7 @@ impl Api {
         body: Option<Value>,
     ) -> Result<T> {
         let mut response = None;
+        let mut timed_out = false;
         for _ in 0..3 {
             let mut builder = self.client.request(method.clone(), url.clone());
             if let Some(sid) = sid {
@@ -39,22 +40,39 @@ impl Api {
                 () = self.cancel.cancelled() => return Err(Error::cancelled()),
                 result = builder.send() => result,
             };
-            if let Ok(reply) = result {
-                response = Some(reply);
-                break;
+            match result {
+                Ok(reply) => {
+                    response = Some(reply);
+                    break;
+                }
+                Err(error) => timed_out = error.is_timeout(),
             }
         }
-        let response = response
-            .ok_or_else(|| Error::new("NetworkError", "Network request failed after 3 attempts"))?;
+        let response = response.ok_or_else(|| {
+            Error::new(
+                "NetworkError",
+                if timed_out {
+                    "Network request timed out after 3 attempts"
+                } else {
+                    "Network request failed after 3 attempts"
+                },
+            )
+        })?;
         let status = response.status();
         if status.as_u16() == 204 {
             return serde_json::from_value(Value::Null)
                 .map_err(|_| Error::new("DecodeError", "Unexpected empty response"));
         }
-        let value: Value = tokio::select! {
+        let bytes = tokio::select! {
             () = self.cancel.cancelled() => return Err(Error::cancelled()),
-            result = response.json() => result.map_err(|_| Error::new("DecodeError", "Invalid API JSON response"))?,
+            result = response.bytes() => result.map_err(|_| Error::new("DecodeError", "Invalid API JSON response"))?,
         };
+        if status.is_success() {
+            return serde_json::from_slice(&bytes)
+                .map_err(|_| Error::new("DecodeError", "Invalid API response schema"));
+        }
+        let value: Value = serde_json::from_slice(&bytes)
+            .map_err(|_| Error::new("DecodeError", "Invalid API JSON response"))?;
         if !status.is_success() {
             return Err(Error {
                 status: Some(status.as_u16()),
@@ -136,6 +154,23 @@ impl Api {
             }
         }
         Ok(())
+    }
+    /// Complete interactive result, with sequential pages over one pooled HTTP client.
+    /// The caller already retains all rows for the workbench; disk export stays streaming.
+    pub async fn query(&self, connection: &Connection, spec: &Spec) -> Result<Vec<crate::Query>> {
+        let mut rows = Vec::new();
+        let mut cursor = None;
+        loop {
+            let page = self
+                .page(connection, spec, rows.len(), cursor, 10_000)
+                .await?;
+            cursor = cursor.or(page.cursor);
+            let count = page.queries.len();
+            rows.extend(page.queries);
+            if count < 10_000 || rows.len() >= page.records_filtered {
+                return Ok(rows);
+            }
+        }
     }
     pub async fn page(
         &self,
@@ -223,4 +258,37 @@ fn endpoint(base: &str, path: &str) -> Result<Url> {
         ));
     }
     Ok(url)
+}
+
+#[cfg(test)]
+mod timeout_tests {
+    use super::*;
+    #[tokio::test]
+    async fn a_slow_server_returns_a_timeout_error_after_sequential_attempts() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let sockets: Vec<_> = (0..3).map(|_| listener.accept().unwrap().0).collect();
+            std::thread::sleep(Duration::from_millis(150));
+            drop(sockets);
+        });
+        let api = Api {
+            client: Client::builder()
+                .timeout(Duration::from_millis(30))
+                .build()
+                .unwrap(),
+            cancel: CancellationToken::new(),
+        };
+        let error = api
+            .request::<Value>(
+                Method::GET,
+                Url::parse(&format!("http://{address}/api/queries")).unwrap(),
+                None,
+                None,
+            )
+            .await
+            .unwrap_err();
+        assert!(error.to_string().contains("timed out"));
+        server.join().unwrap();
+    }
 }

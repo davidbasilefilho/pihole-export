@@ -1,4 +1,4 @@
-use chrono::{Datelike, NaiveDateTime, TimeZone, Timelike};
+use chrono::{Datelike, NaiveDate, NaiveDateTime, TimeZone, Timelike};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -173,6 +173,13 @@ pub fn local_time(input: &str, timezone: &str) -> Result<f64> {
     ]
     .iter()
     .find_map(|format| NaiveDateTime::parse_from_str(input.trim(), format).ok())
+    .or_else(|| {
+        ["%d/%m/%Y", "%Y-%m-%d"].iter().find_map(|format| {
+            NaiveDate::parse_from_str(input.trim(), format)
+                .ok()?
+                .and_hms_opt(0, 0, 0)
+        })
+    })
     .ok_or_else(|| Error::new("ValidationError", "Invalid local date/time"))?;
     if !(1..=9999).contains(&date.year()) || date.nanosecond() >= 1_000_000_000 {
         return Err(Error::new("ValidationError", "Invalid local date/time"));

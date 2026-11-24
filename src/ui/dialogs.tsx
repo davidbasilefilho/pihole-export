@@ -1,5 +1,5 @@
 /** @jsxImportSource @opentui/solid */
-import { For } from "solid-js";
+import { For, onCleanup } from "solid-js";
 
 import type { DomainMutationAction } from "../lib/api";
 import type { ExportFormat, Query, QueryPreset } from "../lib/model";
@@ -240,12 +240,34 @@ export function ExportDialog(props: {
   readonly format: ExportFormat;
   readonly focus: number;
   readonly busy: boolean;
+  readonly progress: import("../lib/backend").ExportProgress | undefined;
+  readonly error: string;
   readonly onFocus: (index: number) => void;
   readonly onPath: (value: string) => void;
   readonly onFormat: (value: ExportFormat) => void;
   readonly onExport: () => void;
   readonly onCancel: () => void;
 }) {
+  let elapsed: import("@opentui/core").TextRenderable | undefined;
+  let started: number | undefined;
+  const tick = () => {
+    if (props.busy) started ??= performance.now();
+    else started = undefined;
+    const phase = props.progress?.phase;
+    const detail =
+      phase === "writing"
+        ? "Writing received batch"
+        : phase === "finalizing"
+          ? "Finalizing file"
+          : "Waiting for Pi-hole response";
+    if (elapsed)
+      elapsed.content =
+        started === undefined
+          ? props.error
+          : `Export in progress. Please don’t cancel. · ${Math.floor((performance.now() - started) / 1000)}s elapsed · ${detail} · ${props.progress?.rows ?? 0} rows processed`;
+  };
+  const timer = setInterval(tick, 200);
+  onCleanup(() => clearInterval(timer));
   return (
     <Modal title="STREAM ALL MATCHING ROWS" color={theme.green}>
       <Segmented
@@ -264,6 +286,13 @@ export function ExportDialog(props: {
         onFocus={() => props.onFocus(1)}
         onInput={props.onPath}
         onSubmit={props.onExport}
+      />
+      <text
+        ref={(value) => {
+          elapsed = value;
+          tick();
+        }}
+        fg={theme.fg}
       />
       <box flexDirection="row" gap={1}>
         <ActionButton

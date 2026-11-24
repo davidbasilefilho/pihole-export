@@ -73,9 +73,6 @@ export const streamQueryPages = (connection: AuthenticatedConnection, spec: Quer
   );
 
 export const fetchAllQueries = (connection: AuthenticatedConnection, spec: QuerySpec) =>
-  streamQueryPages(connection, spec).pipe(
-    Stream.flatMap((page) => Stream.fromIterable(page.queries)),
-    Stream.runCollect,
-  );
+  backend<ReadonlyArray<Query>>({ op: "query", connection, spec });
 
 export const HttpLive = FetchHttpClient.layer;

@@ -177,3 +177,74 @@ test("backend terminates after a standalone response with stdin still open", asy
     await run(backend<number>({ op: "time", input: "01/09/2026 00:00:00", timezone: "UTC" })),
   ).toBe(1788220800);
 });
+
+test("direct export reports real waiting, writing and finalizing phases", async () => {
+  const { exportNative } = await import("../src/lib/backend");
+  const { mkdtempSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const directory = mkdtempSync(`${tmpdir()}/pihole-progress-`);
+  let release!: () => void;
+  let requestStarted!: () => void;
+  const started = new Promise<void>((resolve) => {
+    requestStarted = resolve;
+  });
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let requests = 0;
+  const server = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    async fetch() {
+      requests++;
+      requestStarted();
+      await gate;
+      return Response.json({
+        queries: [],
+        cursor: 0,
+        recordsTotal: 0,
+        recordsFiltered: 0,
+        draw: 0,
+        earliest_timestamp: 0,
+        earliest_timestamp_disk: 0,
+      });
+    },
+  });
+  const phases: string[] = [];
+  const connection = {
+    baseUrl: `http://127.0.0.1:${server.port}`,
+    session: { valid: true, sid: null, csrf: null, validity: 1800, totp: false, message: null },
+    ownedSession: false,
+  };
+  const spec = {
+    from: 1,
+    until: 2,
+    disk: true,
+    domain: "",
+    clientIp: "",
+    clientName: "",
+    upstream: "",
+    type: "",
+    status: "",
+    reply: "",
+    dnssec: "",
+  };
+  try {
+    const done = Effect.runPromise(
+      exportNative(connection, spec, `${directory}/empty.csv`, "csv", (p) =>
+        phases.push(`${p.phase}:${p.rows}`),
+      ),
+    );
+    await started;
+    await Bun.sleep(40);
+    expect(phases).toEqual(["waiting:0"]);
+    release();
+    await done;
+    expect(phases).toEqual(["waiting:0", "writing:0", "finalizing:0"]);
+    expect(requests).toBe(1);
+  } finally {
+    release();
+    server.stop(true);
+    rmSync(directory, { recursive: true, force: true });
+  }
+});

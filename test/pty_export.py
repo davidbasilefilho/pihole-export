@@ -18,6 +18,7 @@ requests = []
 query_started = threading.Event()
 release_query = threading.Event()
 slow = False
+pasted = []
 row = {
     "id": 1, "time": 1788220801, "type": "A", "domain": "synthetic.example",
     "cname": None, "status": "FORWARDED", "client": {"ip": "192.0.2.1", "name": None},
@@ -29,6 +30,12 @@ row = {
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *args):
         pass
+
+    def do_POST(self):
+        body = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
+        assert body.get('password') == 'synthetic-paste-only'
+        pasted.append(True)
+        self.do_GET()
 
     def do_GET(self):
         requests.append(self.path)
@@ -100,15 +107,16 @@ try:
         try:
             wait_for("CONNECTION")
             send(f"http://127.0.0.1:{server.server_port}")
-            send("\t\t")  # host -> port -> authentication
-            send("\x1b[C")
-            send("\x1b[C")  # no-password fixture
-            send("\t\r")  # connect
+            send("\t\t\t")  # host -> port -> auth -> password
+            send("\x1b[200~synthetic-paste-only\x1b[201~")
+            assert "synthetic-paste-only" not in pump()
+            send("\t\t\r")  # totp -> connect
+            assert pasted == [True]
             wait_for("EXPORT TO FILE")
             assert not query_requests()
-            fill("01/09/2026 00:00:00")
+            fill("01/09/2026")
             send("\t")
-            fill("04/09/2026 00:00:00")  # three days triggers the existing >48h guard
+            fill("04/09/2026")  # three days triggers the existing >48h guard
             send("\t")
             fill("UTC")
             send("\t" * 9 + "\r")  # enable on-disk history

@@ -16,6 +16,9 @@ jobs:
 
   release:
     needs: build
+    concurrency:
+      group: publish-dev
+      cancel-in-progress: false
     runs-on: ubuntu-latest
 
     steps:
@@ -32,11 +35,18 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           VERSION="$(jq -r .version package.json)"
+          CURRENT="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)"
+          if [ "$CURRENT" != "$GITHUB_SHA" ]; then
+            echo "Skipping superseded main build $GITHUB_SHA"
+            exit 0
+          fi
+          COMMIT_DATE="$(git show -s --format=%cI "$GITHUB_SHA")"
+          DISPLAY_DATE="$(date -u -d "$COMMIT_DATE" '+%Y-%m-%d %H:%M UTC')"
           SHORT_SHA="${GITHUB_SHA::7}"
 
           gh release create "dev-${SHORT_SHA}" \
             artifacts/pihole-export-* \
             --target "$GITHUB_SHA" \
-            --title "pihole-export v${VERSION} (${SHORT_SHA})" \
+            --title "${DISPLAY_DATE} · Pi-hole Export v${VERSION} (${SHORT_SHA})" \
             --generate-notes \
             --prerelease
