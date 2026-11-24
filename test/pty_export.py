@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import sys
+import socket
 import tempfile
 import threading
 import time
@@ -58,6 +59,14 @@ class Handler(BaseHTTPRequestHandler):
             return
         status = 200
         if path == "/api/queries":
+            start = int(parse_qs(urlsplit(self.path).query).get('start', ['0'])[0])
+            if mode == "lost" or (mode == "lost_after_page" and start > 0):
+                self.connection.shutdown(socket.SHUT_RDWR)
+                self.connection.close()
+                return
+            if mode == "lost_after_page":
+                data.update(queries=[dict(row, id=i) for i in range(10000)], recordsTotal=10001, recordsFiltered=10001)
+
             if mode == "empty":
                 data.update(queries=[], recordsTotal=0, recordsFiltered=0)
             elif mode == "error":
@@ -124,26 +133,22 @@ try:
             assert not query_requests()
             fill("01/09/2026")
             send("\t")
-            fill("04/09/2026")  # three days triggers the existing >48h guard
+            fill("02/09/2026")  # one-day synthetic interval
             send("\t")
             fill("UTC")
             send("\t" * 9 + "\r")  # enable on-disk history
             send("\t" * 3 + "\r")  # Export to File, without Fetch Queries
-            wait_for("HEAVY QUERY")
+            wait_for("STREAM ALL MATCHING ROWS")
             assert not query_requests()
-            send("\x1b")  # cancel confirmation
+            send("\x1b")  # cancel destination
             wait_for("EXPORT TO FILE")
             assert not query_requests() and not list(Path(directory).iterdir())
-            send("\r")
-            wait_for("HEAVY QUERY")
             send("\r")
             wait_for("STREAM ALL MATCHING ROWS")
             assert not query_requests() and not list(Path(directory).iterdir()), "Enter must not start export"
             send("\x1b")  # cancel destination dialog before writing
             wait_for("EXPORT TO FILE")
             assert not query_requests()
-            send("\r")
-            wait_for("HEAVY QUERY")
             send("\r")
             wait_for("STREAM ALL MATCHING ROWS")
             destination = Path(directory) / "alternate path" / "chosen export.csv"
@@ -157,14 +162,12 @@ try:
             assert len(records) == 1 and records[0]["domain"] == "synthetic.example"
             params = parse_qs(urlsplit(query_requests()[0]).query)
             assert params["disk"] == ["true"] and params["from"] == ["1788220800"]
-            assert params["until"] == ["1788480000"] and params["length"] == ["10000"]
+            assert params["until"] == ["1788307200"] and params["length"] == ["10000"]
             wait_for("EXPORT TO FILE")
 
             # Cancel an HTTP request after the writer has created the CSV header.
             slow = True
             query_started.clear()
-            send("\r")
-            wait_for("HEAVY QUERY")
             send("\r")
             wait_for("STREAM ALL MATCHING ROWS")
             cancelled = Path(directory) / "cancelled.csv"
@@ -175,26 +178,30 @@ try:
             send("\x1b")
             wait_for("Export cancelled")
             wait_for("EXPORT TO FILE")
-            before = cancelled.read_bytes()
+            assert not cancelled.exists()
+            cancelled_partial = next(Path(directory).glob(".cancelled.csv.*.partial"))
+            before = cancelled_partial.read_bytes()
             assert b"timestamp" in before and b"synthetic.example" not in before
             release_query.set()
             pump(0.5)
-            assert cancelled.read_bytes() == before, "Cancelled writer must not append late rows"
+            assert cancelled_partial.read_bytes() == before, "Cancelled writer must not append late rows"
             assert len(query_requests()) == 2
             assert destination.exists()
             slow = False
-            for case in ["error", "empty"]:
+            for case in ["error", "empty", "lost", "lost_after_page"]:
                 mode = case
-                send("\r")
-                wait_for("HEAVY QUERY")
                 send("\r")
                 wait_for("STREAM ALL MATCHING ROWS")
                 target = Path(directory) / f"{case}.csv"
                 fill(str(target))
+                target.write_text("previous completed file")
+                previous_requests = len(query_requests())
                 send("\r")
-                if case == "error":
-                    wait_for("timed out (HTTP 504)")
-                    wait_for("may be partial")
+                if case != "empty":
+                    wait_for("timed out (HTTP 504)" if case == "error" else "Network request failed (not retried)")
+                    if case.startswith("lost"):
+                        assert len(query_requests()) - previous_requests == (2 if case == "lost_after_page" else 1), "Retries must remain bounded and sequential"
+                    wait_for("Destination unchanged")
                     assert "STREAM ALL MATCHING ROWS" in pump()
                     assert "do-not-display-secret" not in pump()
                     assert "Logs:" in pump()
@@ -203,12 +210,20 @@ try:
                 else:
                     wait_for("Exported 0 rows")
                     assert "STREAM ALL MATCHING ROWS" not in pump()
-                assert len(list(csv.DictReader(target.open()))) == 0
+                if case != "empty":
+                    assert target.read_text() == "previous completed file"
+                    partial = next(Path(directory).glob(f".{case}.csv.*.partial"))
+                    with partial.open() as handle:
+                        assert len(list(csv.DictReader(handle))) == (10000 if case == "lost_after_page" else 0)
+                else:
+                    with target.open() as handle: assert len(list(csv.DictReader(handle))) == 0
             logs = [json.loads(line) for path in Path(log_home).rglob("operation-*.jsonl") for line in path.read_text().splitlines()]
             assert any(v["outcome"] == "error" and v["cause"] == "api_timeout" and v["pages"] == 0 for v in logs)
             assert any(v["outcome"] == "zero_results" and v["pages"] == 1 for v in logs)
             assert "do-not-display-secret" not in json.dumps(logs)
-            print("PASS: PTY direct export, heavy-query confirmation, both pre-write cancellations, "
+            assert any(v["outcome"] == "error" and v["cause"] == "network_failure" and v["rows"] == 0 for v in logs)
+            assert any(v["outcome"] == "error" and v["cause"] == "network_failure" and v["rows"] == 10000 and v["pages"] == 1 for v in logs)
+            print("PASS: PTY direct export, both pre-write cancellations, "
                   "absolute destination with spaces, single-row readback, in-flight cancellation; "
                   "first-batch HTTP timeout displayed in dialog, empty success and persistent diagnostics.")
         finally:

@@ -265,7 +265,7 @@ export function ExportDialog(props: {
       elapsed.content =
         started === undefined
           ? props.error
-            ? `${props.error} · Export failed; any existing file may be partial.`
+            ? `${props.error} · Export failed; incomplete data stays in a .partial file. Destination unchanged.`
             : ""
           : `Export in progress. Please don’t cancel. · ${Math.floor((performance.now() - started) / 1000)}s elapsed · ${detail} · ${props.progress?.rows ?? 0} rows processed`;
   };

@@ -26,8 +26,7 @@ and JSONL keep buffered file handles open, SQLite uses transactions/prepared ins
 and Parquet writes page-sized row groups. Disk errors happen before query fetching
 when the destination cannot be opened. Cancellation retains partial output; a
 cancelled Parquet file may lack its footer. Only successful completion returns a count.
-A year-long request is possible, but availability depends on Pi-hole retention; no
-such request is used in validation. Available-history timestamps are API metadata,
+Ranges above 48 hours are blocked pending isolated FTL load validation; no annual request is used in validation. Filters do not bypass the cap. Available-history timestamps are API metadata,
 not a promise that a full year is present.
 
 ## Dependency updates
@@ -132,10 +131,7 @@ and the same 30 oxfmt failures. `.gitattributes` now enforces LF; the same fresh
 checkout and the real Windows runner report `i/lf w/lf` and pass formatting.
 The matrix uses `fail-fast: false` so every platform completes independently.
 
-The network-error test uses a loopback TCP fixture that closes three accepted
-connections without HTTP responses. This verifies the actual retry/error path
-without assuming that every OS refuses connections to port 1 within five seconds.
-No production timeout or retry policy was relaxed to make the test pass.
+Query transport failures now fail after one attempt; authentication retains its existing separate policy. Loopback fixtures cover an unanswered request, an incomplete response body and disconnects before/after a page. The production query timeout remains bounded; it is not a guarantee that a disconnected FTL stops server-side processing.
 
 
 ## Toolchain series and release packaging
@@ -219,3 +215,9 @@ it is not keyset pagination. Increasing offsets can repeat server work. The loca
 benchmark does not run FTL and cannot establish that server-side cost or diagnose
 a real installation. Sequential time windows remain an unvalidated hypothesis,
 not a new default; no unlimited page or concurrent prefetch is introduced.
+
+## Availability gate and atomic output
+
+A reported production DNS outage is a suspected load incident, not an independently established causal finding. No production server was accessed to investigate. Local namespace isolation for FTL was unavailable (`bwrap: loopback: Failed to create NETLINK_ROUTE socket: Operation not permitted`); Docker was not installed. Therefore no FTL CPU/DNS latency benchmark or long-range safety claim is made. The core rejects intervals over 48 hours before a query, including requests with filters. Time windows are not enabled without measured equivalence and load benefit.
+
+The four writers use a uniquely named sibling `.partial` file. Successful finalization closes the writer, synchronizes the staged file and renames it to the destination. Failures and cancellation preserve the previous destination. Small synthetic tests cover replacement and preservation for all four formats.

@@ -130,7 +130,14 @@ impl Diagnostic {
 }
 fn safe_cause(error: &Error) -> &'static str {
     match error.tag {
-        "NetworkError" if error.message == "Network request timed out after 3 attempts" => {
+        "NetworkError"
+            if matches!(
+                error.message.as_str(),
+                "Network request timed out after 3 attempts"
+                    | "Network response body timed out"
+                    | "Network request timed out (not retried)"
+            ) =>
+        {
             "network_timeout"
         }
         "NetworkError" => "network_failure",

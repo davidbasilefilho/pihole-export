@@ -141,6 +141,12 @@ impl Spec {
                 "Until must be later than From",
             ));
         }
+        if self.until - self.from > 48.0 * 3600.0 {
+            return Err(Error::new(
+                "ValidationError",
+                "Ranges longer than 48 hours are blocked: DNS load has not been validated. No query was sent.",
+            ));
+        }
         Ok(())
     }
     pub fn heavy(&self) -> bool {

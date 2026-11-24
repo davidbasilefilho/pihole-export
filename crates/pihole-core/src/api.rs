@@ -46,7 +46,8 @@ impl Api {
         let network_timer = Timer(&self.network_us, Instant::now());
         let mut response = None;
         let mut timed_out = false;
-        for _ in 0..3 {
+        let attempts = if url.path() == "/api/queries" { 1 } else { 3 };
+        for _ in 0..attempts {
             let mut builder = self.client.request(method.clone(), url.clone());
             if let Some(sid) = sid {
                 builder = builder.header("X-FTL-SID", sid);
@@ -69,10 +70,11 @@ impl Api {
         let response = response.ok_or_else(|| {
             Error::new(
                 "NetworkError",
-                if timed_out {
-                    "Network request timed out after 3 attempts"
-                } else {
-                    "Network request failed after 3 attempts"
+                match (timed_out, attempts) {
+                    (true, 1) => "Network request timed out (not retried)",
+                    (false, 1) => "Network request failed (not retried)",
+                    (true, _) => "Network request timed out after 3 attempts",
+                    (false, _) => "Network request failed after 3 attempts",
                 },
             )
         })?;
@@ -83,7 +85,9 @@ impl Api {
         }
         let bytes = tokio::select! {
             () = self.cancel.cancelled() => return Err(Error::cancelled()),
-            result = response.bytes() => result.map_err(|_| Error::new("DecodeError", "Invalid API JSON response"))?,
+            result = response.bytes() => result.map_err(|error| if error.is_timeout() {
+                Error::new("NetworkError", "Network response body timed out")
+            } else { Error::new("NetworkError", "Unable to read API response body") })?,
         };
         drop(network_timer);
         let _decode_timer = Timer(&self.decode_us, Instant::now());
@@ -343,11 +347,11 @@ fn endpoint(base: &str, path: &str) -> Result<Url> {
 mod timeout_tests {
     use super::*;
     #[tokio::test]
-    async fn a_slow_server_returns_a_timeout_error_after_sequential_attempts() {
+    async fn a_slow_query_times_out_without_automatic_retry() {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
         let server = std::thread::spawn(move || {
-            let sockets: Vec<_> = (0..3).map(|_| listener.accept().unwrap().0).collect();
+            let sockets: Vec<_> = (0..1).map(|_| listener.accept().unwrap().0).collect();
             std::thread::sleep(Duration::from_millis(150));
             drop(sockets);
         });
@@ -370,6 +374,40 @@ mod timeout_tests {
             .await
             .unwrap_err();
         assert!(error.to_string().contains("timed out"));
+        server.join().unwrap();
+    }
+    #[tokio::test]
+    async fn response_body_timeout_is_not_reported_as_invalid_json() {
+        use std::io::Write;
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            socket.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 1024\r\nContent-Type: application/json\r\n\r\n").unwrap();
+            std::thread::sleep(Duration::from_millis(150));
+        });
+        let api = Api {
+            client: Client::builder()
+                .timeout(Duration::from_millis(50))
+                .build()
+                .unwrap(),
+            cancel: CancellationToken::new(),
+            network_us: AtomicU64::new(0),
+            decode_us: AtomicU64::new(0),
+        };
+        let error = api
+            .request::<Value>(
+                Method::GET,
+                Url::parse(&format!("http://{address}/api/queries")).unwrap(),
+                None,
+                None,
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(error.tag, "NetworkError");
+        assert_eq!(error.message, "Network response body timed out");
+        assert!(api.timings().0 > 0);
+        assert_eq!(api.timings().1, 0);
         server.join().unwrap();
     }
 }

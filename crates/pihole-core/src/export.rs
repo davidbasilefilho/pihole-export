@@ -70,6 +70,7 @@ enum Sink {
 }
 pub struct Exporter {
     path: String,
+    working_path: String,
     format: String,
     sink: Sink,
     count: usize,
@@ -77,19 +78,50 @@ pub struct Exporter {
 impl Exporter {
     pub fn new(path: &str, format: &str) -> Result<Self> {
         let fail = |e: Box<dyn std::error::Error>| Error::write(path, e);
+        let destination = std::path::Path::new(path);
+        if destination.is_dir() {
+            return Err(Error::new(
+                "WriteError",
+                "Output destination is a directory",
+            ));
+        }
+        let filename = destination
+            .file_name()
+            .ok_or_else(|| Error::new("WriteError", "Invalid output filename"))?
+            .to_string_lossy();
+        let working_path = destination
+            .with_file_name(format!(
+                ".{filename}.pihole-{}-{}.partial",
+                std::process::id(),
+                chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default()
+            ))
+            .to_string_lossy()
+            .into_owned();
+        let mut options = std::fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        drop(
+            options
+                .open(&working_path)
+                .map_err(|e| Error::write(path, e))?,
+        );
         let sink = (|| -> std::result::Result<Sink, Box<dyn std::error::Error>> {
             Ok(match format {
                 "csv" => {
                     let mut writer = csv::WriterBuilder::new()
                         .terminator(csv::Terminator::CRLF)
-                        .from_writer(BufWriter::new(File::create(path)?));
+                        .from_writer(BufWriter::new(File::create(&working_path)?));
                     writer.write_record(COLUMNS)?;
                     writer.flush()?;
                     Sink::Csv(Box::new(writer))
                 }
-                "jsonl" => Sink::Jsonl(BufWriter::new(File::create(path)?)),
+                "jsonl" => Sink::Jsonl(BufWriter::new(File::create(&working_path)?)),
                 "sqlite" => {
-                    let db = rusqlite::Connection::open(path)?;
+                    let db = rusqlite::Connection::open(&working_path)?;
                     let schema = COLUMNS
                         .iter()
                         .enumerate()
@@ -132,7 +164,7 @@ impl Exporter {
                         .collect::<Vec<_>>()
                         .join(" ");
                     Sink::Parquet(Box::new(SerializedFileWriter::new(
-                        File::create(path)?,
+                        File::create(&working_path)?,
                         Arc::new(parse_message_type(&format!(
                             "message queries {{ {schema} }}"
                         ))?),
@@ -145,6 +177,7 @@ impl Exporter {
         .map_err(fail)?;
         Ok(Self {
             path: path.into(),
+            working_path,
             format: format.into(),
             sink,
             count: 0,
@@ -265,6 +298,13 @@ impl Exporter {
                 Sink::Parquet(w) => { w.finish()?; }
             } Ok(())
         })().map_err(|e| Error::write(&self.path, e))?;
+        drop(self.sink);
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(&self.working_path)
+            .and_then(|f| f.sync_all())
+            .map_err(|e| Error::write(&self.path, e))?;
+        std::fs::rename(&self.working_path, &self.path).map_err(|e| Error::write(&self.path, e))?;
         Ok(json!({"path": self.path, "count": self.count, "format": self.format}))
     }
 }

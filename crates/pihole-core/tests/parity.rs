@@ -42,7 +42,12 @@ fn four_formats_round_trip_nullable_numeric_unicode_fields() {
     let cancel = CancellationToken::new();
     for format in ["csv", "jsonl", "sqlite", "parquet"] {
         let path = dir.path().join(format);
+        std::fs::write(&path, "previous completed file").unwrap();
         let mut writer = Exporter::new(path.to_str().unwrap(), format).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            "previous completed file"
+        );
         writer.write(&[row()], &cancel).unwrap();
         writer.write(&[row()], &cancel).unwrap();
         assert_eq!(writer.finish().unwrap()["count"], 2);
@@ -98,6 +103,7 @@ fn empty_exports_and_write_errors_and_cancellation() {
                 .unwrap()["count"],
             0
         );
+        let original = std::fs::read(&path).unwrap();
         let mut writer = Exporter::new(path.to_str().unwrap(), format).unwrap();
         let cancel = CancellationToken::new();
         cancel.cancel();
@@ -105,6 +111,8 @@ fn empty_exports_and_write_errors_and_cancellation() {
             writer.write(&[row()], &cancel).unwrap_err().tag,
             "Cancelled"
         );
+        drop(writer);
+        assert_eq!(std::fs::read(&path).unwrap(), original);
         assert!(Exporter::new(dir.path().to_str().unwrap(), format).is_err());
         assert!(Exporter::new(dir.path().join("missing/out").to_str().unwrap(), format).is_err());
     }

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, readdirSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -160,10 +160,15 @@ test("cancellation interrupts the Rust HTTP export without late writes", async (
     );
     await started;
     await Effect.runPromise(Fiber.interrupt(fiber));
-    const partial = readFileSync(path, "utf8");
+    expect(existsSync(path)).toBeFalse();
+    const partialPath = join(
+      dir,
+      readdirSync(dir).find((name) => name.endsWith(".partial"))!,
+    );
+    const partial = readFileSync(partialPath, "utf8");
     release();
     await Bun.sleep(50);
-    expect(readFileSync(path, "utf8")).toBe(partial);
+    expect(readFileSync(partialPath, "utf8")).toBe(partial);
     expect(partial.split("\r\n")).toHaveLength(2);
   } finally {
     release();

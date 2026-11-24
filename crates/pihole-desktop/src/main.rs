@@ -534,19 +534,14 @@ mod tests {
         assert!(rt.state.fields[3].text.is_empty());
     }
     #[test]
-    fn heavy_export_requires_confirmation_without_starting_worker() {
+    fn long_export_is_blocked_without_starting_worker() {
         let mut state = State::default();
         state.fields[3] = TextEdit::new("01/09/2026 00:00:00");
         state.fields[4] = TextEdit::new("04/09/2026 00:00:00");
         state.start(Action::Export, false);
-        assert!(state.pending.is_some());
+        assert!(state.pending.is_none());
         assert!(!state.busy);
-        let mut rt = Runtime::new(state, view, (760.0, 900.0), Env::default());
-        rt.frame(0.0);
-        assert_eq!(
-            node(&rt.accessibility_json(), "confirm").unwrap()["name"],
-            "Confirm heavy query"
-        );
+        assert!(state.status.contains("48 hours are blocked"));
     }
     #[test]
     fn native_worker_queries_and_exports_small_loopback_fixture() {
