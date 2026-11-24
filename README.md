@@ -195,3 +195,13 @@ At most 32 operation files are retained (two small JSON records each, normally w
 No credentials, session IDs, tokens, URLs, hosts, IPs, filters, DNS records or output paths are logged. Server error text is never copied into diagnostics. `zero_results` is a successfully completed empty export; `error` or `cancelled` can leave a separately named `.partial` file (including a CSV with only its header). A header-only file alone does not distinguish those cases. Historical executions cannot be reconstructed from these logs.
 
 Exports now write a uniquely named hidden `.partial` file beside the destination. Only a successfully flushed, synchronized and closed file is renamed to the requested output. Failure/cancellation preserves the previous destination, if any; partial files are never presented under the completed output name. They are retained for explicit inspection/removal and are not resumed automatically. Query transport failures are not automatically retried, including loss of connection after a completed page.
+
+### Offline history from an existing backup
+
+The API's 48-hour limit is temporary containment, not the annual-export solution.
+An explicit Linux CLI mode reads an already-materialized, consistent local FTL
+SQLite snapshot on a **separate machine with independent storage**, without API,
+DNS, backup creation or online fallback. It requires trustworthy coverage and API
+privacy-policy metadata; unknown coverage or exclusion rules fail closed. See
+[offline export requirements, usage and limitations](docs/offline-export.md).
+Do not use it on the DNS host, a live database or shared production storage.

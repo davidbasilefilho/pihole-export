@@ -2,7 +2,10 @@ use crate::{Api, Connection, Error, Query, Result, Spec};
 use chrono::{DateTime, SecondsFormat};
 use parquet::{
     data_type::{ByteArray, ByteArrayType, DoubleType, Int64Type},
-    file::{properties::WriterProperties, writer::SerializedFileWriter},
+    file::{
+        properties::{EnabledStatistics, WriterProperties},
+        writer::SerializedFileWriter,
+    },
     schema::parser::parse_message_type,
 };
 use serde_json::{Value, json};
@@ -77,6 +80,12 @@ pub struct Exporter {
 }
 impl Exporter {
     pub fn new(path: &str, format: &str) -> Result<Self> {
+        Self::with_statistics(path, format, true)
+    }
+    pub(crate) fn new_offline(path: &str, format: &str) -> Result<Self> {
+        Self::with_statistics(path, format, false)
+    }
+    fn with_statistics(path: &str, format: &str, statistics: bool) -> Result<Self> {
         let fail = |e: Box<dyn std::error::Error>| Error::write(path, e);
         let destination = std::path::Path::new(path);
         if destination.is_dir() {
@@ -168,7 +177,15 @@ impl Exporter {
                         Arc::new(parse_message_type(&format!(
                             "message queries {{ {schema} }}"
                         ))?),
-                        Arc::new(WriterProperties::builder().build()),
+                        Arc::new(
+                            WriterProperties::builder()
+                                .set_statistics_enabled(if statistics {
+                                    EnabledStatistics::Page
+                                } else {
+                                    EnabledStatistics::None
+                                })
+                                .build(),
+                        ),
                     )?))
                 }
                 _ => return Err("Unsupported export format".into()),
