@@ -81,8 +81,9 @@ mise run desktop
 It provides all query filters, password/TOTP/session/no-auth modes, a 100-row paginated
 preview, the available-history timestamps reported by the API, direct export in all
 four formats, range validation and cancellation. Its destination is a
-path on the machine running the app. Run the CLI/TUI on the DNS server with an absolute
-`--output` path to write on that server. Desktop credentials remain only in process
+path on the machine running the app; `--output` likewise selects a local destination
+for the CLI/TUI. For long or annual exports, use the isolated offline CLI workflow
+below, not the production DNS host. Desktop credentials remain only in process
 memory and are not saved; each job logs out only sessions it created.
 
 See [architecture, dependency migrations and validation](docs/rust-migration.md).
@@ -116,23 +117,60 @@ PIHOLE_PASSWORD='...' pihole-export --headless --host pi.hole \
 
 Use `PIHOLE_PASSWORD`, `PIHOLE_TOTP`, or `PIHOLE_SESSION_ID` for authentication. Secret command-line flags are deliberately rejected so credentials are not exposed in shell history or process listings.
 
-## Long exports on the Pi-hole server
+## Long or annual exports: isolated offline backup
 
-Run the exporter on the DNS server and point it at its local Pi-hole HTTP API.
-Use the existing `--output` option with an absolute path on that server's disk.
-For example (adjust the dates, API port, and existing destination directory):
+Use the existing **Linux offline CLI** on a separate machine with independent CPU,
+memory and storage. It reads an already-materialized, consistent local FTL SQLite
+snapshot without API calls, DNS lookups, backup creation or online fallback. Do not
+run it on the production DNS host, open a live database, or use shared production
+storage (including UNC/NFS/SMB or a competing VM/container).
+
+Read the [offline prerequisites, coverage and policy requirements](docs/offline-export.md)
+before exporting. A trustworthy existing backup must cover the entire requested
+period, with independently attested coverage and supported API privacy-policy
+metadata. Unknown coverage or incompatible exclusion rules are rejected; stop if
+these prerequisites or operational isolation cannot be established.
+
+On the separate Linux export machine, using existing local files and a writable
+destination directory (this example requests only three days):
 
 ```sh
-pihole-export --headless --host 127.0.0.1 --auth password \
-  --from '2026-08-01 00:00:00' --until '2026-08-02 00:00:00' \
-  --timezone UTC --disk --format jsonl --output /mnt/archive/pihole/queries.jsonl
+./pihole-export --offline /srv/offline/snapshot.db \
+  --coverage /srv/offline/coverage.json --isolated-backup \
+  --from '2026-09-01' --until '2026-09-04' --timezone UTC \
+  --format jsonl --output /srv/exports/history.jsonl
 ```
 
-Supply `PIHOLE_PASSWORD` in the process environment. This still uses the supported
-Pi-hole v6 API over loopback; it does not open the FTL database or copy an export
-from a remote machine. Use a local filesystem destination to keep both ends on
-this server. The destination directory must already exist and be writable.
-Relative paths are resolved from the exporter's working directory.
+`--isolated-backup` confirms the operator has established isolation; it does not
+prove physical separation automatically. Longer offline periods require matching
+backup coverage. Only short synthetic fixtures have been tested: offline progress,
+throughput and completion have **not been validated for a real year**. Measurements
+are not annual-duration estimates or a guarantee of DNS availability. Offline
+progress events currently remain in the backend protocol; the CLI emits its final
+JSON result, and the GUI/TUI forms remain API clients. See the linked guide for
+supported schemas, formats, memory bounds and limitations.
+
+## Short API exports
+
+For a short API request from a separate client machine, use the supported Pi-hole
+HTTP API and write to that client's local disk. This still places query load on
+Pi-hole; running the client elsewhere does not make the server-side scan safe.
+The **48-hour ceiling is temporary containment, not a safety guarantee**, even for
+shorter or filtered requests. It is not the annual-export solution. Do not run long
+jobs on production DNS or retry the reported months-long API workload.
+
+For example (adjust the host, dates and existing destination directory):
+
+```sh
+pihole-export --headless --host pi.hole --auth password \
+  --from '2026-08-01 00:00:00' --until '2026-08-02 00:00:00' \
+  --timezone UTC --disk --format jsonl --output /srv/exports/queries.jsonl
+```
+
+Supply `PIHOLE_PASSWORD` in the process environment. This uses the supported API;
+it does not open the FTL database. The destination directory must already exist
+and be writable on the client machine. Relative paths are resolved from the
+exporter's working directory.
 
 In the TUI, choose **EXPORT TO FILE** directly on the filters screen, confirm a
 range validation, then select the format and destination. This streams
@@ -195,13 +233,3 @@ At most 32 operation files are retained (two small JSON records each, normally w
 No credentials, session IDs, tokens, URLs, hosts, IPs, filters, DNS records or output paths are logged. Server error text is never copied into diagnostics. `zero_results` is a successfully completed empty export; `error` or `cancelled` can leave a separately named `.partial` file (including a CSV with only its header). A header-only file alone does not distinguish those cases. Historical executions cannot be reconstructed from these logs.
 
 Exports now write a uniquely named hidden `.partial` file beside the destination. Only a successfully flushed, synchronized and closed file is renamed to the requested output. Failure/cancellation preserves the previous destination, if any; partial files are never presented under the completed output name. They are retained for explicit inspection/removal and are not resumed automatically. Query transport failures are not automatically retried, including loss of connection after a completed page.
-
-### Offline history from an existing backup
-
-The API's 48-hour limit is temporary containment, not the annual-export solution.
-An explicit Linux CLI mode reads an already-materialized, consistent local FTL
-SQLite snapshot on a **separate machine with independent storage**, without API,
-DNS, backup creation or online fallback. It requires trustworthy coverage and API
-privacy-policy metadata; unknown coverage or exclusion rules fail closed. See
-[offline export requirements, usage and limitations](docs/offline-export.md).
-Do not use it on the DNS host, a live database or shared production storage.
