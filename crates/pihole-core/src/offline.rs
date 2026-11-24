@@ -57,7 +57,7 @@ fn cancelled(cancel: &CancellationToken) -> Result<()> {
 pub fn local_path(path: &Path) -> Result<()> {
     #[cfg(windows)]
     {
-        return pihole_platform::local_path(path).map_err(invalid);
+        pihole_platform::local_path(path).map_err(invalid)
     }
     #[cfg(not(windows))]
     local_unix_path(path)
@@ -811,7 +811,7 @@ mod tests {
     }
     #[test]
     fn unknown_privacy_policy_sidecars_and_missing_backup_are_refused() {
-        let (dir, request) = fixture(3);
+        let (_dir, request) = fixture(3);
         fs::write(&request.path, "previous").unwrap();
         let original = fs::read(&request.coverage).unwrap();
         for policy in [
@@ -845,7 +845,7 @@ mod tests {
         fs::remove_file(format!("{}-wal", request.snapshot)).unwrap();
         #[cfg(unix)]
         {
-            let alias = dir.path().join("alias.db");
+            let alias = _dir.path().join("alias.db");
             std::os::unix::fs::symlink(&request.snapshot, &alias).unwrap();
             assert!(local_path(&alias).is_err());
         }

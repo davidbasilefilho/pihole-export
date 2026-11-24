@@ -142,6 +142,10 @@ with tempfile.TemporaryDirectory(prefix='pihole offline ') as temporary, ExitSta
             send('\x1b[Z'); send('\r'); send('\t'); send('\r'); expect('CONFIRM OFFLINE EXPORT')
             send('\r'); expect('Completed offline export: 20 rows'); validate(root/'interactive.csv', fmt)
 
+        previous = (root/'interactive.csv').read_bytes()
+        send('\t\t\t'); send('\x01\x0b'+str(root/'missing.db')); send('\x1b[Z' * 3)
+        send('\r'); expect('CONFIRM OFFLINE EXPORT'); send('\r'); expect('A regular local SQLite snapshot is required')
+        assert (root/'interactive.csv').read_bytes() == previous
         (evidence/'tui.txt').write_text('\n'.join(screen.display), encoding='utf-8')
     finally:
         stopped.set(); child.terminate(force=True)
