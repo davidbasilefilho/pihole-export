@@ -58,7 +58,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: artifacts
           pattern: packages-*
@@ -94,5 +94,6 @@ jobs:
             artifacts/pihole-export-* \
             --verify-tag \
             --title "pihole-export v${{ steps.version.outputs.version }}" \
+            --notes "Queries above 48 hours are blocked pending isolated FTL load validation. This build is not validated for months-long exports. Query failures are not retried; incomplete files stay separate from the completed destination." \
             --generate-notes \
             --latest

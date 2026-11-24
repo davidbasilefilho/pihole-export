@@ -45,7 +45,7 @@ jobs:
       - name: Smoke actual native window
         timeout-minutes: 3
         run: target/debug/pihole-desktop --native --trace artifacts/desktop/native.jsonl --frames 60
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: desktop-graphics

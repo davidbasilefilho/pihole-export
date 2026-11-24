@@ -24,6 +24,7 @@ pub struct Api {
 impl Api {
     pub fn new(cancel: CancellationToken) -> Result<Self> {
         let client = Client::builder()
+            .retry(reqwest::retry::never())
             .redirect(reqwest::redirect::Policy::none())
             .connect_timeout(Duration::from_secs(15))
             .timeout(Duration::from_secs(300))
