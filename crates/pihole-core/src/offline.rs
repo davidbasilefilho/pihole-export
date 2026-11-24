@@ -367,6 +367,7 @@ pub fn export_offline(
         local_path(Path::new(path))?;
     }
     local_path(&std::env::current_dir().map_err(|_| invalid("Cannot verify working directory"))?)?;
+    local_path(&std::env::current_exe().map_err(|_| invalid("Cannot verify executable path"))?)?;
     local_path(&std::env::temp_dir())?;
     if let Some(path) = std::env::var_os("SQLITE_TMPDIR") {
         local_path(Path::new(&path))?;

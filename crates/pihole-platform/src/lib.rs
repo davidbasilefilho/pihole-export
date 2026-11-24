@@ -80,3 +80,30 @@ fn classify_drive(letter: u8) -> Result<(), &'static str> {
     }
     Ok(())
 }
+
+#[cfg(all(test, windows))]
+mod tests {
+    use super::*;
+    use std::path::Path;
+    #[test]
+    fn rejects_nonlocal_and_ambiguous_paths_before_traversal() {
+        for path in [
+            r"\\localhost\never-open\snapshot.db",
+            r"\\?\C:\snapshot.db",
+            r"C:snapshot.db",
+            r"C:\snapshot.db:stream",
+            r"C:\a\..\snapshot.db",
+            r"C:\NUL",
+            r"C:\CONIN$",
+            "C:/snapshot.db",
+            "https://example.invalid/db",
+        ] {
+            assert!(local_path(Path::new(path)).is_err(), "{path}");
+        }
+    }
+    #[test]
+    fn accepts_verified_local_executable_and_temp() {
+        local_path(&std::env::current_exe().unwrap()).unwrap();
+        local_path(&std::env::temp_dir()).unwrap();
+    }
+}

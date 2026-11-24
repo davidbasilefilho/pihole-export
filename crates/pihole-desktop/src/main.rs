@@ -325,24 +325,33 @@ fn view(s: &State, cx: &mut Cx<State>) -> El {
         accent: t.text,
     });
     let mut form = col().w_full().gap(10.0).child(
-        text("† At least one")
-            .font(type_::LABEL)
-            .color(t.text_secondary),
+        text(if s.offline {
+            "Query filters are optional"
+        } else {
+            "† At least one"
+        })
+        .font(type_::LABEL)
+        .color(t.text_secondary),
     );
     for (i, label) in LABELS.iter().enumerate() {
         if (s.offline && i < 3) || (!s.offline && i >= 15) {
             continue;
         }
+        let label = if s.offline {
+            label.trim_end_matches(" †")
+        } else {
+            label
+        };
         form = form.child(
             col()
                 .w_full()
                 .gap(3.0)
-                .child(text(*label).font(type_::LABEL).color(t.text_secondary))
+                .child(text(label).font(type_::LABEL).color(t.text_secondary))
                 .child(
                     text_input(&s.fields[i], type_::BODY)
                         .single_line()
                         .key(format!("field-{i}"))
-                        .label(*label)
+                        .label(label)
                         .w_full()
                         .h(36.0)
                         .px(10.0)

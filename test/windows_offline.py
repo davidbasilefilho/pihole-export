@@ -10,7 +10,8 @@ import subprocess
 import sys
 import tempfile
 import time
-from contextlib import closing
+from contextlib import closing, contextmanager, ExitStack
+import uuid
 from offline_export import fixture
 
 assert os.name == 'nt'
@@ -36,10 +37,31 @@ def validate(path, fmt, rows=20):
     else:
         assert path.read_bytes()[:4] == path.read_bytes()[-4:] == b'PAR1'
 
-with tempfile.TemporaryDirectory(prefix='pihole offline ') as temporary:
+@contextmanager
+def deny_worker_network(programs):
+    # Block the Rust worker (the TUI EXE itself) and GUI, without changing global firewall policy.
+    # This proves no outbound dependency, not that a blocked call was never attempted.
+    names = []
+    def ps(command):
+        subprocess.run(['powershell', '-NoProfile', '-NonInteractive', '-Command', "$ErrorActionPreference='Stop'; " + command], check=True, capture_output=True, text=True, timeout=30)
+    try:
+        for program in programs:
+            name = 'pihole-offline-test-' + uuid.uuid4().hex
+            quoted = str(program).replace("'", "''")
+            ps(f"New-NetFirewallRule -DisplayName '{name}' -Direction Outbound -Program '{quoted}' -Action Block -Profile Any | Out-Null")
+            names.append(name)
+        yield
+    finally:
+        for name in names:
+            ps(f"Remove-NetFirewallRule -DisplayName '{name}'")
+
+with tempfile.TemporaryDirectory(prefix='pihole offline ') as temporary, ExitStack() as resources:
     root = Path(temporary)
     tui = root / 'tui.exe'
     shutil.copy2(tui_source, tui)
+    gui = root / 'gui.exe'
+    if gui_source: shutil.copy2(gui_source, gui)
+    resources.enter_context(deny_worker_network([tui, gui] if gui_source else [tui]))
     snapshot, coverage = fixture(root, 20)
     original = hashlib.sha256(snapshot.read_bytes()).hexdigest()
     env = dict(os.environ, LOCALAPPDATA=str(root / 'state'), TEMP=str(root), TMP=str(root),
@@ -125,7 +147,6 @@ with tempfile.TemporaryDirectory(prefix='pihole offline ') as temporary:
         stopped.set(); child.terminate(force=True)
 
     if gui_source:
-        gui = root/'gui.exe'; shutil.copy2(gui_source, gui)
         # Rune's supported window-script drives a real window at the framework input boundary.
         # It is not OS keyboard injection or proof of hardware rendering on the user's machine.
         events = [{'t':.2,'key':'mode'}, {'t':.5,'key':'field-3'}]

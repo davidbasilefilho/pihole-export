@@ -6,7 +6,7 @@ hk = "2.14.0"
 [tasks.dev]
 run = "cargo build -p pihole-backend --locked && bun run dev"
 [tasks.test]
-run = "cargo test --locked && cargo build -p pihole-backend --locked && bun test"
+run = "cargo test -p pihole-core -p pihole-backend -p pihole-platform -p pihole-launcher --locked && cargo build -p pihole-backend --locked && bun test"
 [tasks.check]
 run = "cargo fmt --all -- --check && cargo clippy -p pihole-core -p pihole-backend -p pihole-platform -p pihole-launcher --locked --all-targets -- -D warnings && bun run check"
 [tasks.compile]
