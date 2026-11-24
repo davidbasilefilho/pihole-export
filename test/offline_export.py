@@ -6,6 +6,7 @@ import json
 import os
 import re
 import shutil
+import signal
 from pathlib import Path
 import sqlite3
 import subprocess
@@ -107,6 +108,25 @@ def run(command, rows, trace):
                 'rowsPerSecond': round(rows / elapsed), 'outputBytes': destination.stat().st_size,
                 'maxProcessRssKiB': usage.ru_maxrss, 'userSeconds': usage.ru_utime, 'systemSeconds': usage.ru_stime,
                 'fsInputBlocks': usage.ru_inblock, 'fsOutputBlocks': usage.ru_oublock, 'core': result['metrics']})
+        if rows == 100000:
+            destination = root / "cancelled.jsonl"
+            destination.write_text("previous")
+            child = subprocess.Popen([*command, *args, "--format", "jsonl", "--output", str(destination)],
+                env=env, cwd=root, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            deadline = time.monotonic() + 10
+            while time.monotonic() < deadline:
+                partials = list(root.glob(".cancelled.jsonl.*.partial"))
+                if partials and partials[0].stat().st_size > 32768:
+                    child.send_signal(signal.SIGINT)
+                    break
+                assert child.poll() is None, "Export completed before cancellation could be exercised"
+                time.sleep(.001)
+            else:
+                child.kill(); raise AssertionError("No partial batch observed")
+            stdout, stderr = child.communicate(timeout=10)
+            assert child.returncode != 0 and destination.read_text() == "previous", (stdout, stderr)
+            log_text = "\n".join(p.read_text() for p in (root / "state/pihole-export/logs").glob("*.jsonl"))
+            assert '"outcome":"cancelled"' in log_text, log_text
         # Zero results and refusals go through the actual CLI, preserving old output.
         output = root / 'last.jsonl'
         base = [*command, *args, '--format', 'jsonl', '--output', str(output)]

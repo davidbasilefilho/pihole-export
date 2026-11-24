@@ -145,7 +145,9 @@ protocol for future UI consumers.
 
 `test/offline_export.py` creates only short synthetic fixtures, copies the compiled
 standalone TUI/CLI executable into a clean directory and validates all four
-formats, zero results, refusal paths, logs and snapshot immutability. `--trace`
+formats, zero results, refusal paths, logs and snapshot immutability. Its
+100,000-row case sends SIGINT through the actual CLI after observing a written
+partial batch, then checks the cancelled log and unchanged prior destination. `--trace`
 adds strace with socket creation denied and rejects attempted Internet socket,
 connect calls; send/receive is allowed only on annotated anonymous Unix IPC
 socketpair descriptors used by Bun for the backend stdin/stdout. Local ptrace is blocked in this workspace, so that test
