@@ -1,5 +1,7 @@
 #![forbid(unsafe_code)]
 mod api;
+mod diagnostics;
+pub use diagnostics::logs_directory;
 mod export;
 mod model;
 pub use api::*;

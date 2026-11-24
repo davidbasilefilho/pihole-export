@@ -79,10 +79,16 @@ impl Api {
                 key: Some(value["error"]["key"].as_str().unwrap_or("api_error").into()),
                 ..Error::new(
                     "ApiError",
-                    value["error"]["message"]
-                        .as_str()
-                        .or(value["session"]["message"].as_str())
-                        .unwrap_or("Pi-hole API request failed"),
+                    if status.as_u16() == 504 {
+                        "Pi-hole API request timed out (HTTP 504)"
+                    } else if url.path() == "/api/queries" {
+                        "Pi-hole API request failed; see HTTP status"
+                    } else {
+                        value["error"]["message"]
+                            .as_str()
+                            .or(value["session"]["message"].as_str())
+                            .unwrap_or("Pi-hole API request failed")
+                    },
                 )
             });
         }
@@ -158,19 +164,53 @@ impl Api {
     /// Complete interactive result, with sequential pages over one pooled HTTP client.
     /// The caller already retains all rows for the workbench; disk export stays streaming.
     pub async fn query(&self, connection: &Connection, spec: &Spec) -> Result<Vec<crate::Query>> {
+        let mut log = crate::diagnostics::Diagnostic::new("query", "none");
+        let result = self.query_tracked(connection, spec, &mut log).await;
+        log.finish(&result);
+        result
+    }
+    async fn query_tracked(
+        &self,
+        connection: &Connection,
+        spec: &Spec,
+        log: &mut crate::diagnostics::Diagnostic,
+    ) -> Result<Vec<crate::Query>> {
         let mut rows = Vec::new();
         let mut cursor = None;
         loop {
+            log.phase("waiting");
             let page = self
                 .page(connection, spec, rows.len(), cursor, 10_000)
                 .await?;
+            log.phase("collecting");
+            log.pages += 1;
             cursor = cursor.or(page.cursor);
             let count = page.queries.len();
             rows.extend(page.queries);
+            log.rows = rows.len();
             if count < 10_000 || rows.len() >= page.records_filtered {
                 return Ok(rows);
             }
         }
+    }
+    /// One explicit interactive page (desktop navigation), with the same local diagnostics.
+    pub async fn query_page(
+        &self,
+        connection: &Connection,
+        spec: &Spec,
+        start: usize,
+        cursor: Option<i64>,
+        length: usize,
+    ) -> Result<Page> {
+        let mut log = crate::diagnostics::Diagnostic::new("query_page", "none");
+        log.phase("waiting");
+        let result = self.page(connection, spec, start, cursor, length).await;
+        if let Ok(page) = &result {
+            log.pages = 1;
+            log.rows = page.queries.len();
+        }
+        log.finish(&result);
+        result
     }
     pub async fn page(
         &self,

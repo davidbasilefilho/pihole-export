@@ -46,7 +46,14 @@ with tempfile.TemporaryDirectory() as directory:
   key('ctrl+a');type_text(f'http://127.0.0.1:{server.server_port}');key('Tab')
   subprocess.run(['xclip','-selection','clipboard'],input=secret.encode(),check=True)
   key('ctrl+v');key('Tab','Tab');type_text('01/09/2026');key('Tab');type_text('02/09/2026');key('Tab','Tab');type_text('synthetic.example')
-  key(*(['Tab']*12));key('Return')
+  def by_key(node, wanted):
+   if node.get('key') == wanted: return node
+   for child in node.get('children', []):
+    hit=by_key(child,wanted)
+    if hit:return hit
+  bounds=by_key(tree,'query')['bounds']
+  x('mousemove','--window',window,str(int(bounds[0]+bounds[2]/2)),str(int(bounds[1]+bounds[3]/2)))
+  x('click','1')
   assert accepted.wait(10), 'GUI did not authenticate with exactly one pasted synthetic password'
   print('PASS native GUI Ctrl+V via OS clipboard and date-only query')
  finally:

@@ -18,6 +18,7 @@ requests = []
 query_started = threading.Event()
 release_query = threading.Event()
 slow = False
+mode = "rows"
 pasted = []
 row = {
     "id": 1, "time": 1788220801, "type": "A", "domain": "synthetic.example",
@@ -55,9 +56,16 @@ class Handler(BaseHTTPRequestHandler):
         else:
             self.send_error(404)
             return
+        status = 200
+        if path == "/api/queries":
+            if mode == "empty":
+                data.update(queries=[], recordsTotal=0, recordsFiltered=0)
+            elif mode == "error":
+                status = 504
+                data = {"error": {"key": "api_error", "message": "do-not-display-secret"}}
         raw = json.dumps(data).encode()
         try:
-            self.send_response(200)
+            self.send_response(status)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(raw)))
             self.end_headers()
@@ -73,9 +81,9 @@ def query_requests():
 server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
 threading.Thread(target=server.serve_forever, daemon=True).start()
 try:
-    with tempfile.TemporaryDirectory(prefix="pihole-pty-") as directory:
+    with tempfile.TemporaryDirectory(prefix="pihole-pty-") as directory, tempfile.TemporaryDirectory(prefix="pihole-logs-") as log_home:
         child = pexpect.spawn(str(binary), cwd=directory, encoding="utf-8", timeout=1,
-                              dimensions=(40, 140), env={**os.environ, "TERM": "xterm-256color", "COLORTERM": "truecolor"})
+                              dimensions=(40, 140), env={**os.environ, "TERM": "xterm-256color", "COLORTERM": "truecolor", "XDG_STATE_HOME": log_home, "HOME": log_home})
         screen = pyte.Screen(140, 40)
         stream = pyte.Stream(screen)
 
@@ -174,9 +182,35 @@ try:
             assert cancelled.read_bytes() == before, "Cancelled writer must not append late rows"
             assert len(query_requests()) == 2
             assert destination.exists()
+            slow = False
+            for case in ["error", "empty"]:
+                mode = case
+                send("\r")
+                wait_for("HEAVY QUERY")
+                send("\r")
+                wait_for("STREAM ALL MATCHING ROWS")
+                target = Path(directory) / f"{case}.csv"
+                fill(str(target))
+                send("\r")
+                if case == "error":
+                    wait_for("timed out (HTTP 504)")
+                    wait_for("may be partial")
+                    assert "STREAM ALL MATCHING ROWS" in pump()
+                    assert "do-not-display-secret" not in pump()
+                    assert "Logs:" in pump()
+                    send("\x1b")
+                    wait_for("EXPORT TO FILE")
+                else:
+                    wait_for("Exported 0 rows")
+                    assert "STREAM ALL MATCHING ROWS" not in pump()
+                assert len(list(csv.DictReader(target.open()))) == 0
+            logs = [json.loads(line) for path in Path(log_home).rglob("operation-*.jsonl") for line in path.read_text().splitlines()]
+            assert any(v["outcome"] == "error" and v["cause"] == "api_timeout" and v["pages"] == 0 for v in logs)
+            assert any(v["outcome"] == "zero_results" and v["pages"] == 1 for v in logs)
+            assert "do-not-display-secret" not in json.dumps(logs)
             print("PASS: PTY direct export, heavy-query confirmation, both pre-write cancellations, "
                   "absolute destination with spaces, single-row readback, in-flight cancellation; "
-                  "2 synthetic query requests, no preliminary scan.")
+                  "first-batch HTTP timeout displayed in dialog, empty success and persistent diagnostics.")
         finally:
             release_query.set()
             child.send("\x03")

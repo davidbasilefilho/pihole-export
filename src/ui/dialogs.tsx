@@ -2,6 +2,7 @@
 import { For, onCleanup } from "solid-js";
 
 import type { DomainMutationAction } from "../lib/api";
+import { logsDirectory } from "../lib/diagnostics";
 import type { ExportFormat, Query, QueryPreset } from "../lib/model";
 import type { RefinableField } from "../lib/query";
 import { ActionButton, Field, Modal, Segmented } from "./primitives";
@@ -264,6 +265,8 @@ export function ExportDialog(props: {
       elapsed.content =
         started === undefined
           ? props.error
+            ? `${props.error} · Export failed; any existing file may be partial.`
+            : ""
           : `Export in progress. Please don’t cancel. · ${Math.floor((performance.now() - started) / 1000)}s elapsed · ${detail} · ${props.progress?.rows ?? 0} rows processed`;
   };
   const timer = setInterval(tick, 200);
@@ -294,6 +297,7 @@ export function ExportDialog(props: {
         }}
         fg={theme.fg}
       />
+      <text fg={theme.fg}>Logs: {logsDirectory()}</text>
       <box flexDirection="row" gap={1}>
         <ActionButton
           label={props.busy ? "EXPORTING…" : "EXPORT"}

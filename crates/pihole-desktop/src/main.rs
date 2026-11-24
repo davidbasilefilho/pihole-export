@@ -174,7 +174,7 @@ impl State {
                         .await
                         .map(|r| Output::Export(format!("Exported {} rows → {}", r["count"], path)))
                 } else {
-                    api.page(&connection, &spec, start, cursor, 100)
+                    api.query_page(&connection, &spec, start, cursor, 100)
                         .await
                         .map(|page| Output::Page(Box::new(page), Box::new(spec), start, cursor))
                 };
@@ -357,6 +357,17 @@ fn view(s: &State, cx: &mut Cx<State>) -> El {
                     .w_full(),
             ),
         );
+    root = root.child(
+        text(format!(
+            "Logs: {}",
+            pihole_core::logs_directory()
+                .map(|p| p.display().to_string())
+                .unwrap_or_else(|| "user state directory unavailable".into())
+        ))
+        .font(type_::BODY)
+        .color(t.text)
+        .w_full(),
+    );
     if s.pending.is_some() {
         root = root.child(
             Button::new("Confirm heavy query")

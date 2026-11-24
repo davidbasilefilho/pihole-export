@@ -285,20 +285,42 @@ impl Api {
         spec: &Spec,
         path: &str,
         format: &str,
+        progress: impl FnMut(&'static str, usize),
+    ) -> Result<Value> {
+        let mut log = crate::diagnostics::Diagnostic::new("export", format);
+        let result = self
+            .export_tracked(connection, spec, path, format, progress, &mut log)
+            .await;
+        log.finish(&result);
+        result
+    }
+    #[allow(clippy::too_many_arguments)]
+    async fn export_tracked(
+        &self,
+        connection: &Connection,
+        spec: &Spec,
+        path: &str,
+        format: &str,
         mut progress: impl FnMut(&'static str, usize),
+        log: &mut crate::diagnostics::Diagnostic,
     ) -> Result<Value> {
         spec.validate()?;
+        log.phase("writing");
         let mut writer = Exporter::new(path, format)?;
         let (mut start, mut cursor) = (0, None);
         loop {
+            log.phase("waiting");
             progress("waiting", start);
             let page = self.page(connection, spec, start, cursor, 10_000).await?;
             if cursor.is_none() {
                 cursor = page.cursor;
             }
+            log.pages += 1;
+            log.phase("writing");
             progress("writing", start);
             writer.write(&page.queries, &self.cancel)?;
             start += page.queries.len();
+            log.rows = start;
             if page.queries.len() < 10_000 || start >= page.records_filtered {
                 break;
             }
@@ -306,6 +328,7 @@ impl Api {
         if self.cancel.is_cancelled() {
             return Err(Error::cancelled());
         }
+        log.phase("finalizing");
         progress("finalizing", start);
         writer.finish()
     }
