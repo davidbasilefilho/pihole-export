@@ -1,5 +1,11 @@
 [
   {
+    "key": "mode",
+    "name": "Mode: Online Pi-hole API",
+    "role": "button",
+    "states": null
+  },
+  {
     "key": "auth",
     "name": "Auth: password",
     "role": "button",
@@ -13,7 +19,7 @@
   },
   {
     "key": "disk",
-    "name": "Disk: on",
+    "name": "API disk: on",
     "role": "button",
     "states": null
   },

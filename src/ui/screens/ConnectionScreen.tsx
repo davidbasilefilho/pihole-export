@@ -25,6 +25,7 @@ export interface ConnectionScreenProps {
   readonly onSecret: (value: string) => void;
   readonly onTotp: (value: string) => void;
   readonly onConnect: () => void;
+  readonly onOffline?: () => void;
 }
 
 export function ConnectionScreen(props: ConnectionScreenProps) {
@@ -141,6 +142,12 @@ export function ConnectionScreen(props: ConnectionScreenProps) {
             tone="primary"
             onFocus={() => props.onFocus("connect")}
             onPress={props.onConnect}
+          />
+          <ActionButton
+            label="OFFLINE SNAPSHOT (Ctrl+O)"
+            focused={props.focus === "offline"}
+            onFocus={() => props.onFocus("offline")}
+            onPress={() => props.onOffline?.()}
           />
           <text fg={theme.muted}>Credentials remain in memory only · TLS recommended off-host</text>
         </box>

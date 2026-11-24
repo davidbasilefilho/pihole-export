@@ -72,6 +72,7 @@ import { useWorkbenchKeyboard } from "./ui/keyboard";
 import { KeyBar } from "./ui/primitives";
 import { ConnectionScreen } from "./ui/screens/ConnectionScreen";
 import { FilterScreen } from "./ui/screens/FilterScreen";
+import { OfflineScreen } from "./ui/screens/OfflineScreen";
 import { ResultsScreen } from "./ui/screens/ResultsScreen";
 import { theme } from "./ui/theme";
 
@@ -506,6 +507,11 @@ export function App() {
       selectAuth(moveCyclic(methods, authMethod(), delta));
     },
     connect,
+    openOffline: () => {
+      setSecret("");
+      setTotp("");
+      setScreen("offline");
+    },
     filterFocus,
     moveFilterFocus: (delta) => setFilterFocus(moveIndex(filterFocus(), delta, filterControlCount)),
     toggleDisk: () => setFilters("disk", !filters.disk),
@@ -601,6 +607,9 @@ export function App() {
       </box>
       <box flexGrow={1} flexDirection="column">
         <Switch>
+          <Match when={screen() === "offline"}>
+            <OfflineScreen onBack={() => setScreen("connect")} />
+          </Match>
           <Match when={screen() === "connect"}>
             <ConnectionScreen
               width={dimensions().width}
@@ -619,6 +628,11 @@ export function App() {
               onAuth={selectAuth}
               onSecret={setSecret}
               onTotp={setTotp}
+              onOffline={() => {
+                setSecret("");
+                setTotp("");
+                setScreen("offline");
+              }}
               onConnect={connect}
             />
           </Match>

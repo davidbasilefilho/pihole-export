@@ -10,6 +10,7 @@ import type { ExportFormat } from "./model";
 import type { QuerySpec } from "./query";
 
 declare const __EMBEDDED_BACKEND__: string;
+declare const __NATIVE_WINDOWS__: boolean;
 let extractedBackend: string | undefined;
 
 const offlineTemporaryDirectory = () => {
@@ -37,6 +38,11 @@ const offlineTemporaryDirectory = () => {
 };
 
 export const backendBinary = (offline = false) => {
+  if (typeof __NATIVE_WINDOWS__ !== "undefined" && __NATIVE_WINDOWS__) {
+    const worker = process.env.PIHOLE_NATIVE_WORKER_EXE;
+    if (!worker) throw new Error("Start the standalone Windows launcher, not its internal payload");
+    return worker;
+  }
   if (typeof __EMBEDDED_BACKEND__ !== "undefined") {
     if (extractedBackend !== undefined) return extractedBackend;
     const directory = mkdtempSync(
@@ -94,7 +100,7 @@ export const backendFailure = (error: Record<string, unknown>) => {
 
 // Secrets travel on stdin, never command arguments or diagnostic output.
 export interface ExportProgress {
-  readonly phase: "waiting" | "writing" | "finalizing";
+  readonly phase: "waiting" | "validating" | "reading" | "writing" | "finalizing";
   readonly rows: number;
 }
 export const backend = <T>(
@@ -104,11 +110,19 @@ export const backend = <T>(
 ) =>
   Effect.tryPromise({
     try: async (signal): Promise<T> => {
-      const child = Bun.spawn([backendBinary(offline)], {
-        stdin: "pipe",
-        stdout: "pipe",
-        stderr: "ignore",
-      });
+      const child = Bun.spawn(
+        [
+          backendBinary(offline),
+          ...(typeof __NATIVE_WINDOWS__ !== "undefined" && __NATIVE_WINDOWS__
+            ? ["--native-worker"]
+            : []),
+        ],
+        {
+          stdin: "pipe",
+          stdout: "pipe",
+          stderr: "ignore",
+        },
+      );
       let timer: ReturnType<typeof setTimeout> | undefined;
       const abort = () => {
         try {

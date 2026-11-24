@@ -12,6 +12,7 @@ export interface WorkbenchKeyboard {
   readonly toggleScheme: () => void;
   readonly cycleAuth: (delta: number) => void;
   readonly connect: () => void;
+  readonly openOffline?: () => void;
   readonly moveFilterFocus: (delta: number) => void;
   readonly filterFocus: () => number;
   readonly toggleDisk: () => void;
@@ -46,8 +47,16 @@ export interface WorkbenchKeyboard {
 
 export const handleWorkbenchKey = (actions: WorkbenchKeyboard, key: KeyEvent) => {
   const current = actions.screen();
+  if (current === "offline") return;
   if (key.ctrl && key.name === "c") return actions.quit();
   if (current === "connect") {
+    if (
+      (key.ctrl && key.name === "o") ||
+      (actions.connectFocus() === "offline" && key.name === "return")
+    ) {
+      key.preventDefault();
+      return actions.openOffline?.();
+    }
     if (key.name === "tab") {
       key.preventDefault();
       actions.moveConnectFocus(key.shift ? -1 : 1);

@@ -8,7 +8,7 @@ run = "cargo build -p pihole-backend --locked && bun run dev"
 [tasks.test]
 run = "cargo test --locked && cargo build -p pihole-backend --locked && bun test"
 [tasks.check]
-run = "cargo fmt --all -- --check && cargo clippy --locked --all-targets -- -D warnings && bun run check"
+run = "cargo fmt --all -- --check && cargo clippy -p pihole-core -p pihole-backend -p pihole-platform -p pihole-launcher --locked --all-targets -- -D warnings && bun run check"
 [tasks.compile]
 run = "cargo build --release -p pihole-backend --locked && bun run compile"
 [tasks.desktop]

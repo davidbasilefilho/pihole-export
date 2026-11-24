@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/pihole-core", "crates/pihole-backend", "crates/pihole-desktop"]
+members = ["crates/pihole-core", "crates/pihole-backend", "crates/pihole-desktop", "crates/pihole-platform", "crates/pihole-launcher"]
 default-members = ["crates/pihole-core", "crates/pihole-backend"]
 
 [workspace.package]

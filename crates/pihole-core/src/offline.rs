@@ -5,12 +5,9 @@ use ring::digest::{Context, SHA256};
 use rusqlite::{Connection, OpenFlags, types::Value};
 use serde::Deserialize;
 use serde_json::json;
-use std::{
-    fs,
-    io::Read,
-    path::{Component, Path, PathBuf},
-    time::Instant,
-};
+#[cfg(not(windows))]
+use std::path::{Component, PathBuf};
+use std::{fs, io::Read, path::Path, time::Instant};
 use tokio_util::sync::CancellationToken;
 
 #[derive(Deserialize)]
@@ -57,10 +54,19 @@ fn cancelled(cancel: &CancellationToken) -> Result<()> {
 
 // Fail closed on platforms without a mount classifier. No pathname lookup before
 // checking the mount table: a UNC/automount must not cause a remote access.
-fn local_path(path: &Path) -> Result<()> {
+pub fn local_path(path: &Path) -> Result<()> {
+    #[cfg(windows)]
+    {
+        return pihole_platform::local_path(path).map_err(invalid);
+    }
+    #[cfg(not(windows))]
+    local_unix_path(path)
+}
+#[cfg(not(windows))]
+fn local_unix_path(path: &Path) -> Result<()> {
     if !cfg!(target_os = "linux") {
         return Err(invalid(
-            "Offline isolation checks currently support Linux only; use a separate Linux machine with local storage",
+            "Offline isolation checks currently support Linux and Windows only; use a separate supported machine with local storage",
         ));
     }
     if !path.is_absolute()
@@ -360,6 +366,11 @@ pub fn export_offline(
     for path in [&request.snapshot, &request.coverage, &request.path] {
         local_path(Path::new(path))?;
     }
+    local_path(&std::env::current_dir().map_err(|_| invalid("Cannot verify working directory"))?)?;
+    local_path(&std::env::temp_dir())?;
+    if let Some(path) = std::env::var_os("SQLITE_TMPDIR") {
+        local_path(Path::new(&path))?;
+    }
     // Never touch an unknown log mount or fail a valid export for logging.
     let logs = crate::logs_directory().filter(|path| local_path(path).is_ok());
     let mut log = Diagnostic::at(logs, "offline_export", &request.format);
@@ -391,7 +402,11 @@ fn offline_tracked(
             ));
         }
     }
-    if request.path == request.snapshot || request.path == request.coverage {
+    if request.path.eq_ignore_ascii_case(&request.snapshot)
+        || request.path.eq_ignore_ascii_case(&request.coverage)
+        || same_file::is_same_file(&request.path, &request.snapshot).unwrap_or(false)
+        || same_file::is_same_file(&request.path, &request.coverage).unwrap_or(false)
+    {
         return Err(invalid(
             "Output must not replace snapshot or coverage metadata",
         ));
@@ -635,7 +650,7 @@ fn offline_tracked(
     Ok(result)
 }
 
-#[cfg(all(test, target_os = "linux"))]
+#[cfg(all(test, any(target_os = "linux", windows)))]
 mod tests {
     use super::*;
     fn fixture(count: usize) -> (tempfile::TempDir, OfflineRequest) {
@@ -827,9 +842,12 @@ mod tests {
                 .contains("sidecars")
         );
         fs::remove_file(format!("{}-wal", request.snapshot)).unwrap();
-        let alias = dir.path().join("alias.db");
-        std::os::unix::fs::symlink(&request.snapshot, &alias).unwrap();
-        assert!(local_path(&alias).is_err());
+        #[cfg(unix)]
+        {
+            let alias = dir.path().join("alias.db");
+            std::os::unix::fs::symlink(&request.snapshot, &alias).unwrap();
+            assert!(local_path(&alias).is_err());
+        }
         fs::remove_file(&request.snapshot).unwrap();
         assert!(export_offline(&request, &CancellationToken::new(), |_, _| {}).is_err());
         assert_eq!(fs::read_to_string(&request.path).unwrap(), "previous");

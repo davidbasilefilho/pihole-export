@@ -250,7 +250,7 @@ export function ExportDialog(props: {
   readonly onCancel: () => void;
 }) {
   let elapsed: import("@opentui/core").TextRenderable | undefined;
-  let started: number | undefined;
+  let started: number | undefined = props.busy ? performance.now() : undefined;
   const tick = () => {
     if (props.busy) started ??= performance.now();
     else started = undefined;

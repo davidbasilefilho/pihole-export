@@ -94,7 +94,7 @@ export function FilterScreen(props: {
         <Section title="MODE · QUERY ACTION">
           <box flexDirection={narrow() ? "column" : "row"} gap={1}>
             <ActionButton
-              label={props.filters.disk ? "ON-DISK: ON" : "ON-DISK: OFF"}
+              label={props.filters.disk ? "API DISK: ON" : "API DISK: OFF"}
               focused={props.focus === 11}
               onFocus={() => props.onFocus(11)}
               onPress={() => props.setFilters("disk", !props.filters.disk)}
