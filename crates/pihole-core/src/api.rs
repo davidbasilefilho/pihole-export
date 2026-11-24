@@ -47,7 +47,11 @@ impl Api {
         let network_timer = Timer(&self.network_us, Instant::now());
         let mut response = None;
         let mut timed_out = false;
-        let attempts = if url.path() == "/api/queries" { 1 } else { 3 };
+        let attempts = if url.path().ends_with("/api/queries") {
+            1
+        } else {
+            3
+        };
         for _ in 0..attempts {
             let mut builder = self.client.request(method.clone(), url.clone());
             if let Some(sid) = sid {
@@ -106,7 +110,7 @@ impl Api {
                     "ApiError",
                     if status.as_u16() == 504 {
                         "Pi-hole API request timed out (HTTP 504)"
-                    } else if url.path() == "/api/queries" {
+                    } else if url.path().ends_with("/api/queries") {
                         "Pi-hole API request failed; see HTTP status"
                     } else {
                         value["error"]["message"]
@@ -368,7 +372,7 @@ mod timeout_tests {
         let error = api
             .request::<Value>(
                 Method::GET,
-                Url::parse(&format!("http://{address}/api/queries")).unwrap(),
+                Url::parse(&format!("http://{address}/nested/api/queries")).unwrap(),
                 None,
                 None,
             )
