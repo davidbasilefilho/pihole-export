@@ -1,13 +1,13 @@
-import { Data, Schema } from "effect";
+import { Data, Effect, Schema } from "effect";
 
-const OptionalText = Schema.optionalWith(Schema.String, { default: () => "" });
+const OptionalText = Schema.String.pipe(Schema.withDecodingDefaultKey(Effect.succeed("")));
 
-export const AuthMethod = Schema.Literal("password", "session", "none");
+export const AuthMethod = Schema.Literals(["password", "session", "none"]);
 export type AuthMethod = typeof AuthMethod.Type;
 
 export const ConnectionForm = Schema.Struct({
-  host: Schema.NonEmptyTrimmedString,
-  scheme: Schema.Literal("http", "https"),
+  host: Schema.NonEmptyString.check(Schema.isTrimmed()),
+  scheme: Schema.Literals(["http", "https"]),
   port: OptionalText,
   authMethod: AuthMethod,
   secret: OptionalText,
@@ -16,9 +16,9 @@ export const ConnectionForm = Schema.Struct({
 export type ConnectionForm = typeof ConnectionForm.Type;
 
 export const FilterForm = Schema.Struct({
-  from: Schema.NonEmptyTrimmedString,
-  until: Schema.NonEmptyTrimmedString,
-  timezone: Schema.NonEmptyTrimmedString,
+  from: Schema.NonEmptyString.check(Schema.isTrimmed()),
+  until: Schema.NonEmptyString.check(Schema.isTrimmed()),
+  timezone: Schema.NonEmptyString.check(Schema.isTrimmed()),
   disk: Schema.Boolean,
   domain: OptionalText,
   clientIp: OptionalText,
@@ -32,7 +32,7 @@ export const FilterForm = Schema.Struct({
 export type FilterForm = typeof FilterForm.Type;
 
 export const QueryPreset = Schema.Struct({
-  name: Schema.NonEmptyTrimmedString,
+  name: Schema.NonEmptyString.check(Schema.isTrimmed()),
   filters: FilterForm,
 });
 export type QueryPreset = typeof QueryPreset.Type;
@@ -43,7 +43,7 @@ export const PresetFile = Schema.Struct({
 });
 export type PresetFile = typeof PresetFile.Type;
 
-export const ExportFormat = Schema.Literal("csv", "jsonl", "sqlite", "parquet");
+export const ExportFormat = Schema.Literals(["csv", "jsonl", "sqlite", "parquet"]);
 export type ExportFormat = typeof ExportFormat.Type;
 
 export const Session = Schema.Struct({

@@ -1,0 +1,12 @@
+[package]
+name = "pihole-backend"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+pihole-core = { path = "../pihole-core" }
+serde_json.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+serde.workspace = true

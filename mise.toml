@@ -1,21 +1,19 @@
 [tools]
-bun = "1.4"
-zig = "0.16"
+rust = { version = "1.99.1", components = "rustfmt,clippy,rust-analyzer" }
+bun = "1.4.5"
+hk = "2.14.0"
 
 [tasks.dev]
-run = "bun run dev"
-
+run = "cargo build -p pihole-backend --locked && bun run dev"
 [tasks.test]
-run = "bun test"
-
-[tasks.fmt]
-run = "bun run fmt"
-
-[tasks.lint]
-run = "bun run lint"
-
+run = "cargo test --locked && cargo build -p pihole-backend --locked && bun test"
 [tasks.check]
-run = "bun run check"
-
+run = "cargo fmt --all -- --check && cargo clippy --locked --all-targets -- -D warnings && bun run check"
 [tasks.compile]
-run = "bun run compile"
+run = "cargo build --release -p pihole-backend --locked && bun run compile"
+[tasks.desktop]
+run = "cargo run -p pihole-desktop --locked"
+[tasks.desktop-check]
+run = "cargo clippy -p pihole-desktop --all-targets --locked -- -D warnings && cargo test -p pihole-desktop --locked"
+[tasks.hooks]
+run = "hk install --mise"

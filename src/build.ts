@@ -1,4 +1,4 @@
-import { rm } from "node:fs/promises";
+import { rm, copyFile } from "node:fs/promises";
 
 import solidPlugin from "@opentui/solid/bun-plugin";
 import { Console, Effect } from "effect";
@@ -32,6 +32,7 @@ const build = Effect.gen(function* () {
         sourcemap: "none",
         define: {
           "process.env.NODE_ENV": JSON.stringify("production"),
+          "process.env.OPENTUI_LIBC": JSON.stringify(process.env.OPENTUI_LIBC ?? "glibc"),
         },
       }),
     catch: (cause) =>
@@ -40,6 +41,12 @@ const build = Effect.gen(function* () {
         : new Error(String(cause)),
   });
 
+  yield* Effect.tryPromise(() =>
+    copyFile(
+      `target/release/pihole-backend${process.platform === "win32" ? ".exe" : ""}`,
+      `${outdir}/pihole-backend${process.platform === "win32" ? ".exe" : ""}`,
+    ),
+  );
   yield* Console.log(`Built ${result.outputs[0]?.path ?? outfile}`);
 });
 

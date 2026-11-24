@@ -1,0 +1,53 @@
+name: Validate
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  core-cli:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: jdx/mise-action@v4
+      - run: bun install --frozen-lockfile
+      - name: Report checkout line endings
+        run: git ls-files --eol -- src test
+      - run: hk validate
+      - run: mise run check
+      - run: mise run test
+      - run: mise run compile
+      - name: Real terminal with synthetic HTTP fixture
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          python3 -m venv .venv
+          .venv/bin/pip install pexpect==4.9.0 pyte==0.8.2
+          .venv/bin/python test/pty_export.py
+  desktop:
+    # macOS supplies native window/link libraries; no system package installation.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: jdx/mise-action@v4
+      - run: mise run desktop-check
+      - run: cargo build -p pihole-desktop --locked
+      - name: Render graphical snapshot (not a native window smoke)
+        timeout-minutes: 3
+        run: |
+          mkdir -p artifacts/desktop
+          target/debug/pihole-desktop --snap artifacts/desktop/startup.png --tree artifacts/desktop/startup.json --settle
+      - name: Smoke actual native window
+        timeout-minutes: 3
+        run: target/debug/pihole-desktop --native --trace artifacts/desktop/native.jsonl --frames 60
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: desktop-graphics
+          path: artifacts/desktop/
+          if-no-files-found: warn

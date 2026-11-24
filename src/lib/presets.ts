@@ -1,4 +1,4 @@
-import { FileSystem } from "@effect/platform";
+import { FileSystem } from "effect";
 import { Effect, Schema } from "effect";
 
 import { FilterForm, PresetError, PresetFile, QueryPreset } from "./model";
@@ -19,7 +19,7 @@ export const loadPresets = (path: string) =>
       try: () => JSON.parse(text),
       catch: (error) => new PresetError({ message: `Invalid preset JSON: ${String(error)}` }),
     });
-    const decoded = yield* Schema.decodeUnknown(PresetFile)(json).pipe(
+    const decoded = yield* Schema.decodeUnknownEffect(PresetFile)(json).pipe(
       Effect.mapError(
         (error) => new PresetError({ message: `Invalid preset file: ${String(error)}` }),
       ),
@@ -30,7 +30,7 @@ export const loadPresets = (path: string) =>
 export const savePresets = (path: string, presets: ReadonlyArray<QueryPreset>) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
-    const clean = yield* Schema.decodeUnknown(PresetFile)({ version: 1, presets }).pipe(
+    const clean = yield* Schema.decodeUnknownEffect(PresetFile)({ version: 1, presets }).pipe(
       Effect.mapError((error) => new PresetError({ message: String(error) })),
     );
     const slash = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
