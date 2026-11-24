@@ -51,6 +51,7 @@ export function FilterScreen(props: {
       label={label}
       value={props.filters[key]}
       focused={props.focus === index}
+      clearOnFocus={key === "from" || key === "until"}
       placeholder={placeholder}
       onFocus={() => props.onFocus(index)}
       onInput={(value) =>
@@ -69,17 +70,17 @@ export function FilterScreen(props: {
       <box flexDirection="column" width="100%" padding={1} gap={1}>
         <Section title="DATE · TIME · TIMEZONE">
           <box flexDirection={narrow() ? "column" : "row"} gap={1}>
-            {field(0, "from", "From · DD/MM/YYYY HH:mm:ss (inclusive)")}
-            {field(1, "until", "Until · DD/MM/YYYY HH:mm:ss (exclusive)")}
-            {field(2, "timezone", "Timezone (IANA)", "America/Sao_Paulo")}
+            {field(0, "from", "Timestamp from * · DD/MM/YYYY [HH:mm:ss]")}
+            {field(1, "until", "Timestamp until * · DD/MM/YYYY [HH:mm:ss]")}
+            {field(2, "timezone", "Timezone * (IANA)", "America/Sao_Paulo")}
           </box>
         </Section>
-        <Section title="DOMAIN · CLIENT · UPSTREAM">
+        <Section title="DOMAIN · CLIENT · UPSTREAM · † At least one">
           <box flexDirection={narrow() ? "column" : "row"} gap={1}>
-            {field(3, "domain", "Domain*", "Select or type…")}
-            {field(4, "clientIp", "Client (IP)*", "Select or type…")}
-            {field(5, "clientName", "Client (name)*", "Select or type…")}
-            {field(6, "upstream", "Upstream*", "Select or type…")}
+            {field(3, "domain", "Domain †", "Select or type…")}
+            {field(4, "clientIp", "Client (IP) †", "Select or type…")}
+            {field(5, "clientName", "Client (name) †", "Select or type…")}
+            {field(6, "upstream", "Upstream †", "Select or type…")}
           </box>
         </Section>
         <Section title="DNS PROPERTIES">

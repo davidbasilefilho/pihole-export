@@ -23,10 +23,12 @@ const rows = [1, 2, 3].map((id) => ({
 
 test("real CLI exports synthetic history to alternate paths and reports write failures", async () => {
   const requests: URL[] = [];
+  let allRequests = 0;
   const server = Bun.serve({
     hostname: "127.0.0.1",
     port: 0,
     fetch(request) {
+      allRequests++;
       const url = new URL(request.url);
       if (url.pathname === "/api/auth")
         return Response.json({
@@ -58,7 +60,7 @@ test("real CLI exports synthetic history to alternate paths and reports write fa
   const relativeDir = `cli-output-${process.pid}`;
   mkdirSync(join(dir, relativeDir));
   const entry = resolve("src/index.tsx");
-  const invoke = async (output: string, format: string) => {
+  const invoke = async (output: string, format: string, until = "2026-09-02 00:00:00") => {
     const child = Bun.spawn(
       [
         process.execPath,
@@ -71,7 +73,7 @@ test("real CLI exports synthetic history to alternate paths and reports write fa
         "--from",
         "2026-09-01 00:00:00",
         "--until",
-        "2026-09-02 00:00:00",
+        until,
         "--timezone",
         "UTC",
         "--disk",
@@ -94,6 +96,10 @@ test("real CLI exports synthetic history to alternate paths and reports write fa
     return { code, stdout, stderr };
   };
   try {
+    const blocked = await invoke(join(dir, "blocked.csv"), "csv", "2026-09-04 00:00:00");
+    expect(blocked.code).not.toBe(0);
+    expect(blocked.stderr).toContain("48 hours are blocked");
+    expect(allRequests).toBe(0);
     for (const format of ["csv", "jsonl", "sqlite", "parquet"]) {
       const output =
         format === "jsonl"

@@ -42,7 +42,12 @@ fn four_formats_round_trip_nullable_numeric_unicode_fields() {
     let cancel = CancellationToken::new();
     for format in ["csv", "jsonl", "sqlite", "parquet"] {
         let path = dir.path().join(format);
+        std::fs::write(&path, "previous completed file").unwrap();
         let mut writer = Exporter::new(path.to_str().unwrap(), format).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            "previous completed file"
+        );
         writer.write(&[row()], &cancel).unwrap();
         writer.write(&[row()], &cancel).unwrap();
         assert_eq!(writer.finish().unwrap()["count"], 2);
@@ -98,6 +103,7 @@ fn empty_exports_and_write_errors_and_cancellation() {
                 .unwrap()["count"],
             0
         );
+        let original = std::fs::read(&path).unwrap();
         let mut writer = Exporter::new(path.to_str().unwrap(), format).unwrap();
         let cancel = CancellationToken::new();
         cancel.cancel();
@@ -105,7 +111,32 @@ fn empty_exports_and_write_errors_and_cancellation() {
             writer.write(&[row()], &cancel).unwrap_err().tag,
             "Cancelled"
         );
+        drop(writer);
+        assert_eq!(std::fs::read(&path).unwrap(), original);
         assert!(Exporter::new(dir.path().to_str().unwrap(), format).is_err());
         assert!(Exporter::new(dir.path().join("missing/out").to_str().unwrap(), format).is_err());
     }
+}
+
+#[test]
+fn date_only_uses_local_midnight_and_rejects_invalid_or_missing_midnight() {
+    for (date, explicit, zone) in [
+        ("01/09/2026", "01/09/2026 00:00:00", "UTC"),
+        ("2026-09-01", "2026-09-01 00:00:00", "America/Sao_Paulo"),
+        ("2026-03-08", "2026-03-08 00:00:00", "America/New_York"),
+    ] {
+        assert_eq!(
+            local_time(date, zone).unwrap(),
+            local_time(explicit, zone).unwrap()
+        );
+    }
+    assert_eq!(
+        local_time("2026-03-09", "America/New_York").unwrap()
+            - local_time("2026-03-08", "America/New_York").unwrap(),
+        23.0 * 3600.0
+    );
+    for date in ["31/02/2026", "2026-02-30", "0000-01-01"] {
+        assert!(local_time(date, "UTC").is_err());
+    }
+    assert!(local_time("2011-12-30", "Pacific/Apia").is_err());
 }

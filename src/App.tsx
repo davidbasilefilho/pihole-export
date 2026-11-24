@@ -14,7 +14,7 @@ import {
   logout,
   mutateDomain,
 } from "./lib/api";
-import { exportNative } from "./lib/backend";
+import { exportNative, type ExportProgress } from "./lib/backend";
 import {
   dispatchFilterRequest,
   prepareFilterRequest,
@@ -138,6 +138,7 @@ export function App() {
   const [inspectTarget, setInspectTarget] = createSignal<Query | null>(null);
   const [busy, setBusy] = createSignal(false);
   const [message, setMessage] = createSignal("");
+  const [exportProgress, setExportProgress] = createSignal<ExportProgress | undefined>();
   const [exportSpec, setExportSpec] = createSignal<QuerySpec | null>(null);
   const [exportReturnScreen, setExportReturnScreen] = createSignal<"filters" | "results">(
     "filters",
@@ -288,7 +289,8 @@ export function App() {
     const path = exportPath().trim();
     if (active === null || spec === null) return;
     if (path === "") return setMessage("Enter an export destination");
-    runEffect(exportNative(active, spec, path, exportFormat()), (result) => {
+    setExportProgress(undefined);
+    runEffect(exportNative(active, spec, path, exportFormat(), setExportProgress), (result) => {
       setScreen(exportReturnScreen());
       setMessage(`Exported ${result.count.toLocaleString()} rows → ${result.path}`);
     });
@@ -789,6 +791,8 @@ export function App() {
       </Show>
       <Show when={screen() === "export"} fallback={<box />}>
         <ExportDialog
+          progress={exportProgress()}
+          error={message()}
           path={exportPath()}
           format={exportFormat()}
           focus={dialogFocus()}

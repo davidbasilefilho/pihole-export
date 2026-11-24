@@ -37,43 +37,43 @@
   },
   {
     "key": "field-3",
-    "name": "From (local)",
+    "name": "Timestamp from *",
     "role": "text-input",
     "states": null
   },
   {
     "key": "field-4",
-    "name": "Until (exclusive)",
+    "name": "Timestamp until *",
     "role": "text-input",
     "states": null
   },
   {
     "key": "field-5",
-    "name": "Timezone",
+    "name": "Timezone *",
     "role": "text-input",
     "states": null
   },
   {
     "key": "field-6",
-    "name": "Domain",
+    "name": "Domain †",
     "role": "text-input",
     "states": null
   },
   {
     "key": "field-7",
-    "name": "Client IP",
+    "name": "Client IP †",
     "role": "text-input",
     "states": null
   },
   {
     "key": "field-8",
-    "name": "Client name",
+    "name": "Client name †",
     "role": "text-input",
     "states": null
   },
   {
     "key": "field-9",
-    "name": "Upstream",
+    "name": "Upstream †",
     "role": "text-input",
     "states": null
   },
@@ -135,6 +135,12 @@
   },
   {
     "key": "status",
+    "name": null,
+    "role": "group",
+    "states": null
+  },
+  {
+    "key": "status-Choose dates and a destination. No request runs until you click Query or Export.",
     "name": "Choose dates and a destination. No request runs until you click Query or Export.",
     "role": "label",
     "states": null

@@ -2,11 +2,12 @@
 name = "pihole-desktop"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
 pihole-core = { path = "../pihole-core" }
-rune = { git = "https://github.com/anomalyco/rune", rev = "0b8714f102431f884757786cff344d53ec9bcc53", default-features = false, features = ["embedded-fonts", "accessibility", "tooling"] }
+rune = { git = "https://github.com/anomalyco/rune", rev = "0b8714f102431f884757786cff344d53ec9bcc53", default-features = false, features = ["embedded-fonts", "accessibility", "tooling", "dbus"] }
 rune-kit = { git = "https://github.com/anomalyco/rune", rev = "0b8714f102431f884757786cff344d53ec9bcc53", default-features = false }
 tokio.workspace = true
 tokio-util.workspace = true

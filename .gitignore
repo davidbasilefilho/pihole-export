@@ -5,3 +5,8 @@ node_modules/
 bin/
 /target/
 /.venv/
+
+/dist/
+/package-stage/
+/artifacts/
+__pycache__/

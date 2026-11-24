@@ -70,6 +70,7 @@ enum Sink {
 }
 pub struct Exporter {
     path: String,
+    working_path: String,
     format: String,
     sink: Sink,
     count: usize,
@@ -77,19 +78,50 @@ pub struct Exporter {
 impl Exporter {
     pub fn new(path: &str, format: &str) -> Result<Self> {
         let fail = |e: Box<dyn std::error::Error>| Error::write(path, e);
+        let destination = std::path::Path::new(path);
+        if destination.is_dir() {
+            return Err(Error::new(
+                "WriteError",
+                "Output destination is a directory",
+            ));
+        }
+        let filename = destination
+            .file_name()
+            .ok_or_else(|| Error::new("WriteError", "Invalid output filename"))?
+            .to_string_lossy();
+        let working_path = destination
+            .with_file_name(format!(
+                ".{filename}.pihole-{}-{}.partial",
+                std::process::id(),
+                chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default()
+            ))
+            .to_string_lossy()
+            .into_owned();
+        let mut options = std::fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        drop(
+            options
+                .open(&working_path)
+                .map_err(|e| Error::write(path, e))?,
+        );
         let sink = (|| -> std::result::Result<Sink, Box<dyn std::error::Error>> {
             Ok(match format {
                 "csv" => {
                     let mut writer = csv::WriterBuilder::new()
                         .terminator(csv::Terminator::CRLF)
-                        .from_writer(BufWriter::new(File::create(path)?));
+                        .from_writer(BufWriter::new(File::create(&working_path)?));
                     writer.write_record(COLUMNS)?;
                     writer.flush()?;
                     Sink::Csv(Box::new(writer))
                 }
-                "jsonl" => Sink::Jsonl(BufWriter::new(File::create(path)?)),
+                "jsonl" => Sink::Jsonl(BufWriter::new(File::create(&working_path)?)),
                 "sqlite" => {
-                    let db = rusqlite::Connection::open(path)?;
+                    let db = rusqlite::Connection::open(&working_path)?;
                     let schema = COLUMNS
                         .iter()
                         .enumerate()
@@ -132,7 +164,7 @@ impl Exporter {
                         .collect::<Vec<_>>()
                         .join(" ");
                     Sink::Parquet(Box::new(SerializedFileWriter::new(
-                        File::create(path)?,
+                        File::create(&working_path)?,
                         Arc::new(parse_message_type(&format!(
                             "message queries {{ {schema} }}"
                         ))?),
@@ -145,6 +177,7 @@ impl Exporter {
         .map_err(fail)?;
         Ok(Self {
             path: path.into(),
+            working_path,
             format: format.into(),
             sink,
             count: 0,
@@ -165,12 +198,13 @@ impl Exporter {
                 }
                 Sink::Jsonl(writer) => {
                     for cells in &data {
-                        let record: serde_json::Map<_, _> = COLUMNS
-                            .iter()
-                            .zip(cells)
-                            .map(|(name, v)| ((*name).into(), v.clone()))
-                            .collect();
-                        serde_json::to_writer(&mut *writer, &record)?;
+                        use serde::ser::{SerializeMap, Serializer};
+                        let mut serializer = serde_json::Serializer::new(&mut *writer);
+                        let mut record = serializer.serialize_map(Some(COLUMNS.len()))?;
+                        for (name, value) in COLUMNS.iter().zip(cells) {
+                            record.serialize_entry(name, value)?;
+                        }
+                        record.end()?;
                         writer.write_all(b"\n")?;
                     }
                     writer.flush()?;
@@ -264,6 +298,13 @@ impl Exporter {
                 Sink::Parquet(w) => { w.finish()?; }
             } Ok(())
         })().map_err(|e| Error::write(&self.path, e))?;
+        drop(self.sink);
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(&self.working_path)
+            .and_then(|f| f.sync_all())
+            .map_err(|e| Error::write(&self.path, e))?;
+        std::fs::rename(&self.working_path, &self.path).map_err(|e| Error::write(&self.path, e))?;
         Ok(json!({"path": self.path, "count": self.count, "format": self.format}))
     }
 }
@@ -275,16 +316,53 @@ impl Api {
         path: &str,
         format: &str,
     ) -> Result<Value> {
+        self.export_progress(connection, spec, path, format, |_, _| {})
+            .await
+    }
+    pub async fn export_progress(
+        &self,
+        connection: &Connection,
+        spec: &Spec,
+        path: &str,
+        format: &str,
+        progress: impl FnMut(&'static str, usize),
+    ) -> Result<Value> {
+        let before = self.timings();
+        let mut log = crate::diagnostics::Diagnostic::new("export", format);
+        let result = self
+            .export_tracked(connection, spec, path, format, progress, &mut log)
+            .await;
+        self.record_timings(&mut log, before);
+        log.finish(&result);
+        result
+    }
+    #[allow(clippy::too_many_arguments)]
+    async fn export_tracked(
+        &self,
+        connection: &Connection,
+        spec: &Spec,
+        path: &str,
+        format: &str,
+        mut progress: impl FnMut(&'static str, usize),
+        log: &mut crate::diagnostics::Diagnostic,
+    ) -> Result<Value> {
         spec.validate()?;
+        log.phase("writing");
         let mut writer = Exporter::new(path, format)?;
         let (mut start, mut cursor) = (0, None);
         loop {
+            log.phase("waiting");
+            progress("waiting", start);
             let page = self.page(connection, spec, start, cursor, 10_000).await?;
             if cursor.is_none() {
                 cursor = page.cursor;
             }
+            log.pages += 1;
+            log.phase("writing");
+            progress("writing", start);
             writer.write(&page.queries, &self.cancel)?;
             start += page.queries.len();
+            log.rows = start;
             if page.queries.len() < 10_000 || start >= page.records_filtered {
                 break;
             }
@@ -292,6 +370,8 @@ impl Api {
         if self.cancel.is_cancelled() {
             return Err(Error::cancelled());
         }
+        log.phase("finalizing");
+        progress("finalizing", start);
         writer.finish()
     }
 }

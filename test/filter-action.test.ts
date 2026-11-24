@@ -25,33 +25,18 @@ const filters = {
   dnssec: "",
 };
 
-test("direct export requires confirmation and never loads the result table", async () => {
-  const calls: string[] = [];
-  let pending: FilterRequest | undefined;
-  const request = await Effect.runPromise(prepareFilterRequest(filters, "export"));
-  const handlers = {
-    confirm: (value: FilterRequest) => {
-      pending = value;
-      calls.push("confirm");
-    },
-    query: () => {
-      calls.push("query");
-    },
-    export: (spec: FilterRequest["spec"]) => {
-      expect(spec).toEqual(request.spec);
-      calls.push("export");
-    },
-  };
-  dispatchFilterRequest(request, handlers);
-  expect(calls).toEqual(["confirm"]); // cancelling here performs no query or export
-  expect(pending?.spec.disk).toBe(true);
-  dispatchFilterRequest(pending!, handlers, true);
-  expect(calls).toEqual(["confirm", "export"]);
+test("long filtered and unfiltered requests are blocked before dispatch", async () => {
+  for (const domain of ["", "synthetic.example"]) {
+    await expect(
+      Effect.runPromise(prepareFilterRequest({ ...filters, domain }, "export")),
+    ).rejects.toThrow("48 hours are blocked");
+  }
 });
 
 test("direct export preserves every filter and normal queries keep their action", async () => {
   const selected = {
     ...filters,
+    until: "02/09/2026 00:00:00",
     domain: "*.example",
     clientIp: "192.0.2.1",
     clientName: "desk",
@@ -70,7 +55,7 @@ test("direct export preserves every filter and normal queries keep their action"
       calls.push("query");
     },
     export: (spec: FilterRequest["spec"]) => {
-      expect(spec).toEqual({ ...selected, from: 1788220800, until: 1788480000 });
+      expect(spec).toEqual({ ...selected, from: 1788220800, until: 1788307200 });
       calls.push("export");
     },
   };

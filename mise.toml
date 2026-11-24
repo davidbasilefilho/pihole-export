@@ -1,6 +1,6 @@
 [tools]
-rust = { version = "1.99.1", components = "rustfmt,clippy,rust-analyzer" }
-bun = "1.4.5"
+rust = { version = "1.100", components = "rustfmt,clippy,rust-analyzer" }
+bun = "1.4"
 hk = "2.14.0"
 
 [tasks.dev]

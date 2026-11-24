@@ -1,4 +1,5 @@
-import { existsSync } from "node:fs";
+import { existsSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
 import { Effect } from "effect";
@@ -8,7 +9,33 @@ import { ApiError, DecodeError, NetworkError, ValidationError, WriteError } from
 import type { ExportFormat } from "./model";
 import type { QuerySpec } from "./query";
 
+declare const __EMBEDDED_BACKEND__: string;
+let extractedBackend: string | undefined;
+
 export const backendBinary = () => {
+  if (typeof __EMBEDDED_BACKEND__ !== "undefined") {
+    if (extractedBackend !== undefined) return extractedBackend;
+    const directory = mkdtempSync(join(tmpdir(), "pihole-backend-"));
+    const path = join(
+      directory,
+      process.platform === "win32" ? "pihole-backend.exe" : "pihole-backend",
+    );
+    try {
+      writeFileSync(path, Buffer.from(__EMBEDDED_BACKEND__, "base64"), { flag: "wx", mode: 0o700 });
+    } catch (error) {
+      rmSync(directory, { recursive: true, force: true });
+      throw error;
+    }
+    process.once("exit", () => {
+      try {
+        rmSync(directory, { recursive: true, force: true });
+      } catch {
+        /* Windows may still be reaping the child. */
+      }
+    });
+    extractedBackend = path;
+    return path;
+  }
   const name = process.platform === "win32" ? "pihole-backend.exe" : "pihole-backend";
   const candidates = [
     process.env.PIHOLE_BACKEND_PATH,
@@ -40,7 +67,11 @@ export const backendFailure = (error: Record<string, unknown>) => {
 };
 
 // Secrets travel on stdin, never command arguments or diagnostic output.
-export const backend = <T>(request: unknown) =>
+export interface ExportProgress {
+  readonly phase: "waiting" | "writing" | "finalizing";
+  readonly rows: number;
+}
+export const backend = <T>(request: unknown, onProgress?: (progress: ExportProgress) => void) =>
   Effect.tryPromise({
     try: async (signal): Promise<T> => {
       const child = Bun.spawn([backendBinary()], {
@@ -63,9 +94,29 @@ export const backend = <T>(request: unknown) =>
         await child.stdin.write(JSON.stringify(request) + "\n");
         await child.stdin.flush();
         if (signal.aborted) abort();
-        const [output, code] = await Promise.all([new Response(child.stdout).text(), child.exited]);
+        const read = async () => {
+          let pending = "";
+          let final: { ok?: T; error?: Record<string, unknown> } | undefined;
+          const decoder = new TextDecoder();
+          for await (const bytes of child.stdout) {
+            pending += decoder.decode(bytes, { stream: true });
+            let newline: number;
+            while ((newline = pending.indexOf("\n")) >= 0) {
+              const line = pending.slice(0, newline);
+              pending = pending.slice(newline + 1);
+              if (!line.trim()) continue;
+              const message = JSON.parse(line);
+              if (message.progress) {
+                if (!signal.aborted) onProgress?.(message.progress);
+              } else final = message;
+            }
+          }
+          if (pending.trim()) final = JSON.parse(pending);
+          if (!final) throw new Error("Rust backend returned no result");
+          return final;
+        };
+        const [result, code] = await Promise.all([read(), child.exited]);
         if (code !== 0) throw new Error(`Rust backend exited with code ${code}`);
-        const result = JSON.parse(output);
         if (result.error !== undefined) throw backendFailure(result.error);
         return result.ok as T;
       } finally {
@@ -83,11 +134,15 @@ export const exportNative = (
   spec: QuerySpec,
   path: string,
   format: ExportFormat,
+  onProgress?: (progress: ExportProgress) => void,
 ) =>
-  backend<{ path: string; count: number; format: ExportFormat }>({
-    op: "export",
-    connection,
-    spec,
-    path,
-    format,
-  });
+  backend<{ path: string; count: number; format: ExportFormat }>(
+    {
+      op: "export",
+      connection,
+      spec,
+      path,
+      format,
+    },
+    onProgress,
+  );

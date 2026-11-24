@@ -18,6 +18,34 @@ A responsive keyboard-and-mouse terminal workbench for querying and exporting co
 - Provides `--headless` automation on the same query and export primitives used by the TUI.
 - Keeps credentials only in memory, clears form copies after login, never persists them, and closes sessions created by this app on exit.
 
+## Downloads
+
+[Releases](https://github.com/davidbasilefilho/pihole-export/releases) provide six
+standalone executable assets: `pihole-export-tui-v0.2.0-<platform>` and
+`pihole-export-gui-v0.2.0-<platform>`, for `linux-x64`, `darwin-arm64`, and
+`windows-x64` (Windows files end in `.exe`). Dev names also include the commit SHA.
+Download just the interface you want; on Linux/macOS run `chmod +x <download>`.
+GitHub's automatic source-code archives are not the application downloads.
+
+- **TUI/headless:** the Rust backend is embedded. No sidecar download, Bun or Rust
+  installation is required. `--headless` and `--output` work as in source mode.
+- **GUI:** the native Rune desktop links the core directly. Linux also embeds the
+  required window-library payload; fonts are embedded on every platform.
+- Linux targets Ubuntu 24.04-compatible glibc; GUI requires an X11/Wayland desktop
+  and a working Vulkan driver supplied by the OS. macOS uses system frameworks;
+  Windows uses system graphics. These are unsigned developer executables, not
+  signed/notarized installers.
+
+The TUI backend and Linux GUI payload are extracted into a fresh private temporary
+folder and cleaned up on normal exit. The temporary filesystem must allow execution;
+set `TMPDIR` to a suitable private location if the default is mounted `noexec`.
+Abrupt termination can leave temporary files. The compiled TUI always uses its own
+embedded backend, ignoring source-mode backend overrides.
+
+CI runs each downloaded-style file in a clean directory, exports one synthetic row
+through headless TUI in all four formats, and starts GUI for a graphical snapshot
+and a native-window smoke. This is not a full GUI export interaction test.
+
 ## Requirements
 
 - Pi-hole v6 with HTTP API access
@@ -41,8 +69,8 @@ Enter an IP/domain such as `10.200.0.242`, or a full URL such as `https://pi.hol
 `pihole-core` owns HTTP authentication, query decoding, timestamp conversion, pagination,
 cancellation and all four file writers. The existing Bun CLI/TUI calls the sibling
 `pihole-backend` process through stdin/stdout; secrets are never command arguments.
-Release archives must be extracted together: keep `pihole-export` and `pihole-backend`
-in the same directory. `PIHOLE_BACKEND_PATH` can select an explicit backend path.
+Compiled TUI executables embed their matching backend. In source mode only,
+`PIHOLE_BACKEND_PATH` can select an explicit backend path.
 
 The native Rune app links the same crate directly:
 
@@ -52,7 +80,7 @@ mise run desktop
 
 It provides all query filters, password/TOTP/session/no-auth modes, a 100-row paginated
 preview, the available-history timestamps reported by the API, direct export in all
-four formats, the heavy-query confirmation and cancellation. Its destination is a
+four formats, range validation and cancellation. Its destination is a
 path on the machine running the app. Run the CLI/TUI on the DNS server with an absolute
 `--output` path to write on that server. Desktop credentials remain only in process
 memory and are not saved; each job logs out only sessions it created.
@@ -107,29 +135,18 @@ this server. The destination directory must already exist and be writable.
 Relative paths are resolved from the exporter's working directory.
 
 In the TUI, choose **EXPORT TO FILE** directly on the filters screen, confirm a
-heavy query when prompted, then select the format and destination. This streams
+range validation, then select the format and destination. This streams
 the matching pages without fetching the full result table first. **FETCH QUERIES**
 still loads the complete result table for interactive analysis. Exporting from
 that table re-queries all matching rows, independent of local search and sort.
 
-Larger date ranges, including a year, are accepted, but only retained Pi-hole
-history can be exported. `--disk` requests on-disk history; it does not choose the
-output path or guarantee a year of retention. The CLI currently reports a row
-count, not the available retention interval. Headless runs do not prompt for the
-TUI's heavy-query confirmation, so choose the interval deliberately.
+Intervals longer than 48 hours are temporarily blocked in the shared core, including filtered requests and `--allow-heavy`. No API query is sent for those ranges. A reported DNS outage is under investigation; causality is not established, and sequential pagination alone does not bound FTL CPU or DNS latency. The 48-hour ceiling is precautionary, not a proven safe workload. No long-export or DNS-availability guarantee is made. Time-window optimization remains disabled until equivalence and server-load benchmarks on isolated FTL demonstrate a benefit. Only retained history can be exported.
 
-Exports write directly to the destination: CSV/JSONL replace its contents and
-SQLite replaces its `queries` table. There is no resume checkpoint or atomic
-publication; an error or cancellation can leave a partial output (Parquet may
-lack its footer). Use a new filename for each run and check the exit status.
+Exports stage data in a separate `.partial` file in the destination directory and publish it by rename only after successful finalization. Failure preserves an existing completed destination.
 
 ## Historical-query safety
 
-On-disk mode is slower and is normally needed beyond Pi-hole's in-memory history. The app asks for explicit confirmation only when the requested range exceeds 48 hours and date/time is the sole query filter:
-
-> This query scans more than 2 days of history without any additional filter and may cause heavy disk I/O. Continue?
-
-Adding a domain, client IP/name, upstream, type, status, reply, or DNSSEC filter suppresses that warning.
+Ranges above 48 hours are blocked before query execution, even with client/domain filters or `--allow-heavy`. Filters do not prove that a scan is cheap. The cap is precautionary and does not establish safe load for shorter ranges; do not retry the reported months-long workload. Query requests have no automatic retries or prefetch. Isolated FTL CPU/DNS latency measurements are still required before enabling longer ranges.
 
 ## Checks
 
@@ -151,12 +168,7 @@ python3 -m venv /tmp/pihole-export-pty-venv
 /tmp/pihole-export-pty-venv/bin/python test/pty_export.py
 ```
 
-This Linux/macOS smoke test starts its own HTTP fixture on `127.0.0.1` with one
-synthetic row. It checks direct export without a preliminary query, the heavy-query
-confirmation, a destination with spaces, CSV readback, cancellation before writing,
-and cancellation of an in-flight request. It uses a three-day interval and a temporary
-directory that is removed afterward. It never connects to a real Pi-hole. The
-optional first argument is the path to the compiled exporter binary.
+This Linux/macOS smoke test uses its own loopback HTTP fixture and a one-day synthetic interval. It checks direct export without a preliminary query, password paste, alternate destination, successful/zero-row export, cancellation, first-response timeout, disconnect before and after a 10,000-row page, visible errors and persistent sanitized logs. Existing output is preserved on failure, with partial data separately named. No real Pi-hole is contacted. The optional first argument is the compiled exporter path.
 
 ## Security
 
@@ -169,3 +181,17 @@ Pi-hole serves version-matched API documentation at `http://pi.hole/api/docs`. T
 ## License
 
 Apache License 2.0. See [LICENSE](LICENSE).
+
+### Local diagnostics
+
+TUI, GUI and headless CLI share bounded local diagnostics in the Rust core. The export dialog and desktop show the directory:
+
+- Linux: `$XDG_STATE_HOME/pihole-export/logs`, default `~/.local/state/pihole-export/logs`.
+- macOS: `~/Library/Logs/pihole-export/logs`.
+- Windows: `%LOCALAPPDATA%\pihole-export\logs`.
+
+At most 32 operation files are retained (two small JSON records each, normally well under 128 KiB total). Each contains UTC time, application version, local operation ID, operation/format, total duration, HTTP wait/body time and JSON decode time separately, combined page time, writer/finalization time, completed page/row counts and an allowlisted outcome/cause. A started record without completion means the process ended before it could report completion; it does not establish why. Concurrent processes can transiently exceed the retention count. There is no telemetry or extra server request. Logging failures never fail the export and never write to CLI stdout.
+
+No credentials, session IDs, tokens, URLs, hosts, IPs, filters, DNS records or output paths are logged. Server error text is never copied into diagnostics. `zero_results` is a successfully completed empty export; `error` or `cancelled` can leave a separately named `.partial` file (including a CSV with only its header). A header-only file alone does not distinguish those cases. Historical executions cannot be reconstructed from these logs.
+
+Exports now write a uniquely named hidden `.partial` file beside the destination. Only a successfully flushed, synchronized and closed file is renamed to the requested output. Failure/cancellation preserves the previous destination, if any; partial files are never presented under the completed output name. They are retained for explicit inspection/removal and are not resumed automatically. Query transport failures are not automatically retried, including loss of connection after a completed page.

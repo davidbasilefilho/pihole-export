@@ -11,7 +11,7 @@ import { analyzeQueries } from "../src/lib/analytics";
 import type { FilterForm } from "../src/lib/model";
 import type { Query } from "../src/lib/model";
 import { DomainActionDialog } from "../src/ui/dialogs";
-import { Segmented } from "../src/ui/primitives";
+import { Field, Segmented } from "../src/ui/primitives";
 import { FilterScreen } from "../src/ui/screens/FilterScreen";
 import { ResultsScreen } from "../src/ui/screens/ResultsScreen";
 
@@ -302,4 +302,108 @@ test("cancelling the domain confirmation never invokes the mutation callback", a
   } finally {
     setup.renderer.destroy();
   }
+});
+
+test("date field clears once per focus entry and password bracketed paste stays masked", async () => {
+  let value = "01/09/2026";
+  const setup = await testRender(
+    () => (
+      <Field
+        label="Date"
+        value={value}
+        focused
+        clearOnFocus
+        onFocus={() => {}}
+        onInput={(v) => {
+          value = v;
+        }}
+      />
+    ),
+    { width: 80, height: 8 },
+  );
+  await setup.renderOnce();
+  expect(value).toBe("");
+  const input = setup.renderer.currentFocusedRenderable as InputRenderable;
+  await setup.mockInput.typeText("02/09/2026");
+  await setup.renderOnce();
+  expect(value).toBe("02/09/2026");
+  input.focus();
+  await setup.renderOnce();
+  expect(value).toBe("02/09/2026");
+  input.blur();
+  input.focus();
+  await setup.renderOnce();
+  expect(value).toBe("");
+  setup.renderer.destroy();
+  const [secret, setSecret] = createSignal("");
+  const password = await testRender(
+    () => (
+      <Field
+        label="Password"
+        secret
+        value={secret()}
+        focused
+        onFocus={() => {}}
+        onInput={setSecret}
+      />
+    ),
+    { width: 80, height: 8 },
+  );
+  await password.renderOnce();
+  password.renderer.keyInput.processPaste(new TextEncoder().encode("synthetic-password"));
+  await password.renderOnce();
+  expect(secret()).toBe("synthetic-password");
+  expect(password.captureCharFrame()).not.toContain("synthetic-password");
+  password.renderer.destroy();
+});
+
+test("export dialog keeps elapsed time and cancellation visible while waiting", async () => {
+  const { ExportDialog } = await import("../src/ui/dialogs");
+  let busy = true;
+  let phase: "waiting" | "writing" | "finalizing" = "waiting";
+  let rows = 0;
+  let error = "";
+  const setup = await testRender(
+    () =>
+      ExportDialog({
+        path: "synthetic.csv",
+        format: "csv",
+        focus: 3,
+        get busy() {
+          return busy;
+        },
+        get progress() {
+          return { phase, rows };
+        },
+        get error() {
+          return error;
+        },
+        onFocus: () => {},
+        onPath: () => {},
+        onFormat: () => {},
+        onExport: () => {},
+        onCancel: () => {},
+      }),
+    { width: 140, height: 20 },
+  );
+  await Bun.sleep(1100);
+  await setup.renderOnce();
+  expect(setup.captureCharFrame()).toContain("1s elapsed");
+  expect(setup.captureCharFrame()).toContain("Waiting for Pi-hole response");
+  expect(setup.captureCharFrame()).toContain("CANCEL");
+  phase = "writing";
+  await Bun.sleep(220);
+  await setup.renderOnce();
+  expect(setup.captureCharFrame()).toContain("Writing received batch");
+  phase = "finalizing";
+  rows = 1;
+  await Bun.sleep(220);
+  await setup.renderOnce();
+  expect(setup.captureCharFrame()).toContain("1 rows processed");
+  busy = false;
+  error = "Network request timed out";
+  await Bun.sleep(220);
+  await setup.renderOnce();
+  expect(setup.captureCharFrame()).toContain(error);
+  setup.renderer.destroy();
 });

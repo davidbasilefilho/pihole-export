@@ -40,6 +40,11 @@ async fn execute(request: Value, cancel: CancellationToken) -> Result<Value> {
             .await?;
             Ok(Value::Null)
         }
+        "query" => Ok(serde_json::to_value(
+            api.query(&field(&request, "connection")?, &field(&request, "spec")?)
+                .await?,
+        )
+        .unwrap()),
         "page" => Ok(serde_json::to_value(
             api.page(
                 &field(&request, "connection")?,
@@ -52,11 +57,16 @@ async fn execute(request: Value, cancel: CancellationToken) -> Result<Value> {
         )
         .unwrap()),
         "export" => {
-            api.export(
+            api.export_progress(
                 &field(&request, "connection")?,
                 &field(&request, "spec")?,
                 &field::<String>(&request, "path")?,
                 &field::<String>(&request, "format")?,
+                |phase, rows| {
+                    use std::io::Write;
+                    println!("{}", json!({"progress":{"phase":phase,"rows":rows}}));
+                    let _ = std::io::stdout().flush();
+                },
             )
             .await
         }

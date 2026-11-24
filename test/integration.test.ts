@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, existsSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -340,9 +340,9 @@ describe("Pi-hole HTTP lifecycle", () => {
           "--auth",
           "password",
           "--from",
-          "1970-01-01 00:00:01",
+          "2023-11-14 22:13:20",
           "--until",
-          "2033-05-18 03:33:20",
+          "2023-11-15 22:13:20",
           "--timezone",
           "UTC",
           "--output",
@@ -414,7 +414,11 @@ describe("Pi-hole HTTP lifecycle", () => {
     await Bun.sleep(20);
     await Effect.runPromise(Fiber.interrupt(fiber));
     expect(Exit.isFailure(await Effect.runPromise(Fiber.await(fiber)))).toBeTrue();
-    expect(readFileSync(path, "utf8")).toContain("host-1.example");
+    expect(existsSync(path)).toBeFalse();
+    const partial = readdirSync(temp).find(
+      (name) => name.startsWith(".cancelled.csv.") && name.endsWith(".partial"),
+    )!;
+    expect(readFileSync(join(temp, partial), "utf8")).toContain("host-1.example");
   });
 
   test("Effect cancellation interrupts in-flight HTTP work", async () => {
