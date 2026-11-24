@@ -1,4 +1,5 @@
-import { existsSync } from "node:fs";
+import { existsSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
 import { Effect } from "effect";
@@ -8,7 +9,33 @@ import { ApiError, DecodeError, NetworkError, ValidationError, WriteError } from
 import type { ExportFormat } from "./model";
 import type { QuerySpec } from "./query";
 
+declare const __EMBEDDED_BACKEND__: string;
+let extractedBackend: string | undefined;
+
 export const backendBinary = () => {
+  if (typeof __EMBEDDED_BACKEND__ !== "undefined") {
+    if (extractedBackend !== undefined) return extractedBackend;
+    const directory = mkdtempSync(join(tmpdir(), "pihole-backend-"));
+    const path = join(
+      directory,
+      process.platform === "win32" ? "pihole-backend.exe" : "pihole-backend",
+    );
+    try {
+      writeFileSync(path, Buffer.from(__EMBEDDED_BACKEND__, "base64"), { flag: "wx", mode: 0o700 });
+    } catch (error) {
+      rmSync(directory, { recursive: true, force: true });
+      throw error;
+    }
+    process.once("exit", () => {
+      try {
+        rmSync(directory, { recursive: true, force: true });
+      } catch {
+        /* Windows may still be reaping the child. */
+      }
+    });
+    extractedBackend = path;
+    return path;
+  }
   const name = process.platform === "win32" ? "pihole-backend.exe" : "pihole-backend";
   const candidates = [
     process.env.PIHOLE_BACKEND_PATH,

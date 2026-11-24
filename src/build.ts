@@ -1,4 +1,4 @@
-import { rm, copyFile } from "node:fs/promises";
+import { rm, readFile } from "node:fs/promises";
 
 import solidPlugin from "@opentui/solid/bun-plugin";
 import { Console, Effect } from "effect";
@@ -12,6 +12,9 @@ const build = Effect.gen(function* () {
     catch: (cause) => new Error(`Failed to clean ${outdir}: ${String(cause)}`),
   });
 
+  const backendBytes = yield* Effect.tryPromise(() =>
+    readFile(`target/release/pihole-backend${process.platform === "win32" ? ".exe" : ""}`),
+  );
   const result = yield* Effect.tryPromise({
     try: () =>
       Bun.build({
@@ -31,6 +34,7 @@ const build = Effect.gen(function* () {
         treeShaking: true,
         sourcemap: "none",
         define: {
+          __EMBEDDED_BACKEND__: JSON.stringify(backendBytes.toString("base64")),
           "process.env.NODE_ENV": JSON.stringify("production"),
           "process.env.OPENTUI_LIBC": JSON.stringify(process.env.OPENTUI_LIBC ?? "glibc"),
         },
@@ -41,12 +45,6 @@ const build = Effect.gen(function* () {
         : new Error(String(cause)),
   });
 
-  yield* Effect.tryPromise(() =>
-    copyFile(
-      `target/release/pihole-backend${process.platform === "win32" ? ".exe" : ""}`,
-      `${outdir}/pihole-backend${process.platform === "win32" ? ".exe" : ""}`,
-    ),
-  );
   yield* Console.log(`Built ${result.outputs[0]?.path ?? outfile}`);
 });
 

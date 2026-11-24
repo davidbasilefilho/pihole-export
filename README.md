@@ -18,6 +18,34 @@ A responsive keyboard-and-mouse terminal workbench for querying and exporting co
 - Provides `--headless` automation on the same query and export primitives used by the TUI.
 - Keeps credentials only in memory, clears form copies after login, never persists them, and closes sessions created by this app on exit.
 
+## Downloads
+
+[Releases](https://github.com/davidbasilefilho/pihole-export/releases) provide six
+standalone executable assets: `pihole-export-tui-v0.2.0-<platform>` and
+`pihole-export-gui-v0.2.0-<platform>`, for `linux-x64`, `darwin-arm64`, and
+`windows-x64` (Windows files end in `.exe`). Dev names also include the commit SHA.
+Download just the interface you want; on Linux/macOS run `chmod +x <download>`.
+GitHub's automatic source-code archives are not the application downloads.
+
+- **TUI/headless:** the Rust backend is embedded. No sidecar download, Bun or Rust
+  installation is required. `--headless` and `--output` work as in source mode.
+- **GUI:** the native Rune desktop links the core directly. Linux also embeds the
+  required window-library payload; fonts are embedded on every platform.
+- Linux targets Ubuntu 24.04-compatible glibc; GUI requires an X11/Wayland desktop
+  and a working Vulkan driver supplied by the OS. macOS uses system frameworks;
+  Windows uses system graphics. These are unsigned developer executables, not
+  signed/notarized installers.
+
+The TUI backend and Linux GUI payload are extracted into a fresh private temporary
+folder and cleaned up on normal exit. The temporary filesystem must allow execution;
+set `TMPDIR` to a suitable private location if the default is mounted `noexec`.
+Abrupt termination can leave temporary files. The compiled TUI always uses its own
+embedded backend, ignoring source-mode backend overrides.
+
+CI runs each downloaded-style file in a clean directory, exports one synthetic row
+through headless TUI in all four formats, and starts GUI for a graphical snapshot
+and a native-window smoke. This is not a full GUI export interaction test.
+
 ## Requirements
 
 - Pi-hole v6 with HTTP API access
@@ -41,8 +69,8 @@ Enter an IP/domain such as `10.200.0.242`, or a full URL such as `https://pi.hol
 `pihole-core` owns HTTP authentication, query decoding, timestamp conversion, pagination,
 cancellation and all four file writers. The existing Bun CLI/TUI calls the sibling
 `pihole-backend` process through stdin/stdout; secrets are never command arguments.
-Release archives must be extracted together: keep `pihole-export` and `pihole-backend`
-in the same directory. `PIHOLE_BACKEND_PATH` can select an explicit backend path.
+Compiled TUI executables embed their matching backend. In source mode only,
+`PIHOLE_BACKEND_PATH` can select an explicit backend path.
 
 The native Rune app links the same crate directly:
 

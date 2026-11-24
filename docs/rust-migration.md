@@ -15,9 +15,10 @@
 - `src`: existing CLI/TUI, presets, keyboard controls and display analytics. Those
   UI concerns remain TypeScript; the backend is Rust. No new output mode was added.
 
-Build with `mise run compile`; distribute **both** files in `bin/`. Release workflows
-package both executables in one tar.gz, including Windows `.exe` files. Source-mode
-`mise run dev` builds the backend first. `PIHOLE_BACKEND_PATH` can override discovery.
+Build with `mise run compile`; the TUI embeds its matching Rust backend and needs
+no sidecar. Source-mode `mise run dev` builds the backend first; only source mode
+uses `PIHOLE_BACKEND_PATH`. Both release workflows publish executable assets directly,
+with separate GUI and TUI files per platform (no application archives).
 
 Exports are bounded by one API page (10,000 records), plus per-page conversion/column
 buffers. The first cursor is retained and `start` advances by actual row count. CSV
@@ -33,8 +34,8 @@ not a promise that a full year is present.
 
 All direct JS dependencies were refreshed and both `bun.lock` and `Cargo.lock` are
 committed. Rust dependencies resolve to current compatible releases, including
-reqwest 0.13, rusqlite 0.43, parquet 60 and Tokio 1.54. Build tools are pinned in
-`mise.toml` and `rust-toolchain.toml`; VS Code rust-analyzer runs Clippy.
+reqwest 0.13, rusqlite 0.43, parquet 60 and Tokio 1.54. Build tool series are selected in
+`mise.toml`; VS Code rust-analyzer runs Clippy.
 
 - Effect 4: `Schema.decodeUnknownEffect`, `Schema.Literals`, decoding defaults,
   `Effect.catch`, `Fiber.interrupt`, array-based `Stream.paginate`/collection and
@@ -135,3 +136,28 @@ The network-error test uses a loopback TCP fixture that closes three accepted
 connections without HTTP responses. This verifies the actual retry/error path
 without assuming that every OS refuses connections to port 1 within five seconds.
 No production timeout or retry policy was relaxed to make the test pass.
+
+
+## Toolchain series and release packaging
+
+`mise.toml` is the only toolchain selector: Rust `1.100` (including rustfmt,
+Clippy and rust-analyzer), Bun `1.4`. No `rust-toolchain.toml` overrides mise.
+The workspace and all crates declare Rust 1.100 as their minimum supported version.
+Use `mise install` on a fresh checkout and `mise upgrade rust bun` for existing
+installs to resolve newer patches within those series, never Rust 1.101 or Bun 1.5.
+Run commands inside `mise exec -- ...` or an activated mise shell. CI prints
+`mise latest rust@1.100`, `mise latest bun@1.4` and checks the actual executable versions.
+
+Reviewed the [Rust 1.100 stable release notes](https://doc.rust-lang.org/releases.html#version-11000-2026-11-12).
+Custom allocators and the never type do not simplify this HTTP/export core; no
+unnecessary allocator abstractions or nightly features are introduced.
+
+Dev, stable and PR builds share `packages.yml`, so the same packaging and standalone
+artifact checks gate each channel. Linux GUI bundles its non-glibc window libraries
+(including dynamically loaded Winit libraries) with their distribution copyright
+notices. The OS still supplies glibc, display services and GPU drivers. Windows Rust
+binaries link the CRT statically; macOS uses system frameworks. Both GUI and TUI are
+separate native executable assets. Linux GUI embeds its runtime payload in a native
+launcher, extracting into a mode-0700 private temporary directory. The compiled TUI
+extracts embedded backend bytes into a private temporary directory, with exclusive
+creation and mode 0700 on Unix. Both clean up on normal exit. No Bun/Rust installation is required to run them.

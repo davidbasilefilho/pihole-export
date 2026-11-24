@@ -51,3 +51,7 @@ jobs:
           name: desktop-graphics
           path: artifacts/desktop/
           if-no-files-found: warn
+  packages:
+    uses: ./.github/workflows/packages.yml
+    with:
+      suffix: -ci
