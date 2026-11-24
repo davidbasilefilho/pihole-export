@@ -378,17 +378,30 @@ mod timeout_tests {
     }
     #[tokio::test]
     async fn response_body_timeout_is_not_reported_as_invalid_json() {
-        use std::io::Write;
+        use std::io::{BufRead, Write};
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
         let server = std::thread::spawn(move || {
             let (mut socket, _) = listener.accept().unwrap();
+            socket
+                .set_read_timeout(Some(Duration::from_secs(2)))
+                .unwrap();
+            let mut reader = std::io::BufReader::new(socket.try_clone().unwrap());
+            loop {
+                let mut line = String::new();
+                if reader.read_line(&mut line).unwrap() == 0 {
+                    return;
+                }
+                if line == "\r\n" {
+                    break;
+                }
+            }
             socket.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 1024\r\nContent-Type: application/json\r\n\r\n").unwrap();
-            std::thread::sleep(Duration::from_millis(150));
+            std::thread::sleep(Duration::from_millis(1500));
         });
         let api = Api {
             client: Client::builder()
-                .timeout(Duration::from_millis(50))
+                .timeout(Duration::from_millis(500))
                 .build()
                 .unwrap(),
             cancel: CancellationToken::new(),
