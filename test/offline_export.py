@@ -4,6 +4,7 @@ import csv
 import hashlib
 import json
 import os
+import re
 import shutil
 from pathlib import Path
 import sqlite3
@@ -15,7 +16,7 @@ from contextlib import closing
 BASE = 1788220800
 
 def fixture(root, rows):
-    source = root / 'snapshot.db'
+    source = root / 'snapshot with spaces #?%.db'
     with closing(sqlite3.connect(source)) as db:
         db.executescript('''
 CREATE TABLE ftl(id INTEGER PRIMARY KEY,value BLOB); INSERT INTO ftl VALUES(0,22);
@@ -54,7 +55,7 @@ def run(command, rows, trace):
             argv = [*command, *args, '--format', fmt, '--output', str(destination)]
             if trace:
                 # Fail any socket creation, while recording even attempted calls.
-                argv = ['strace', '-f', '-qq', '-e', 'trace=network', '-e', 'inject=socket:error=EPERM', '-o', str(root / 'network.trace'), *argv]
+                argv = ['strace', '-f', '-qq', '-yy', '-e', 'trace=network', '-e', 'inject=socket:error=EPERM', '-o', str(root / 'network.trace'), *argv]
             started = time.monotonic()
             with tempfile.TemporaryFile() as stdout, tempfile.TemporaryFile() as stderr:
                 child = subprocess.Popen(argv, env=env, cwd=root, stdout=stdout, stderr=stderr)
@@ -73,7 +74,12 @@ def run(command, rows, trace):
             assert hashlib.sha256(source.read_bytes()).hexdigest() == original
             if trace:
                 calls = (root / 'network.trace').read_text()
-                assert not any(token in calls for token in ('AF_INET', 'connect(', 'sendto(', 'recvfrom(')), calls
+                assert 'AF_INET' not in calls and not re.search(r'\bsocket\(', calls) and 'connect(' not in calls, calls
+                # Bun's stdin/stdout pipes are anonymous AF_UNIX socketpairs.
+                # Permit only those IPC descriptors, never an Internet socket.
+                for line in calls.splitlines():
+                    if re.search(r'\b(sendto|recvfrom|sendmsg|recvmsg)\(', line):
+                        assert 'UNIX-STREAM' in line, line
             if fmt == 'csv':
                 with destination.open(newline='') as stream:
                     count = 0

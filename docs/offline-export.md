@@ -22,7 +22,9 @@ That gate is temporary incident containment, **not** fulfillment of the annual g
 ## Inputs and coverage
 
 Provide absolute local paths without symlinks. The worker checks each path against
-Linux mount information before inspecting it, including output and local logs.
+Linux mount information before inspecting it, including output, local logs, working directory and SQLite temporary paths.
+The compiled offline CLI extracts its embedded worker only under checked local
+`/tmp`, ignoring TMPDIR for extraction.
 Known network/automount/unknown filesystem types, UNC/URL syntax and `/etc/pihole`
 are rejected. Ext2/3/4, XFS, Btrfs, ZFS, tmpfs and overlay are accepted only under
 the operator's isolation confirmation. The runtime's temporary directory and the
@@ -121,8 +123,12 @@ only when the independently attested backup covers it.
 A single reverse rowid scan joins references by primary key. No OFFSET pagination,
 COUNT-per-page, prefetch, concurrent requests or global result vector is used.
 The worker rejects plans requiring a temporary sort. SQLite cache is 2 MiB,
-mmap disabled, row length capped at 64 KiB, and batches stop at 1024 rows or roughly
-1 MiB of decoded fields. These bound working data, not total runtime RSS. Integrity,
+mmap disabled, row length capped at 64 KiB, and CSV/JSONL/SQLite batches stop at 1024 rows or roughly 1 MiB of decoded fields.
+Parquet batches stop at 65,536 rows or roughly 16 MiB, with column statistics
+omitted and a hard limit of 4096 row groups to bound accumulated footer metadata.
+Exceeding that limit fails without publishing a truncated result; use CSV, JSONL
+or SQLite for larger histories. It is not a promise that every year's volume fits
+one Parquet file. These bound working data, not total runtime RSS. Integrity,
 reference and checksum validation require extra sequential local reads; their time
 is included in total operation duration. Small selective exports may still scan
 the local snapshot; this trades local work for predictable memory and ID order.
@@ -141,7 +147,8 @@ protocol for future UI consumers.
 standalone TUI/CLI executable into a clean directory and validates all four
 formats, zero results, refusal paths, logs and snapshot immutability. `--trace`
 adds strace with socket creation denied and rejects attempted Internet socket,
-connect/send/receive calls. Local ptrace is blocked in this workspace, so that test
+connect calls; send/receive is allowed only on annotated anonymous Unix IPC
+socketpair descriptors used by Bun for the backend stdin/stdout. Local ptrace is blocked in this workspace, so that test
 must pass on Linux CI before calling absence-of-network behavior verified at the
 syscall level. The CLI test without strace passed locally. Performance results must
 include validation and finalization, and are not a forecast of annual duration or
@@ -164,8 +171,8 @@ including extraction/startup, integrity/hash checks and atomic finalization):
 
 | Synthetic rows | CSV | JSONL | SQLite | Parquet | Maximum process RSS |
 |---|---:|---:|---:|---:|---:|
-| 20,000 | 225 ms | 159 ms | 124 ms | 123 ms | about 92 MiB |
-| 100,000 | 404 ms | 535 ms | 445 ms | 404 ms | about 92 MiB |
+| 20,000 | 118 ms | 98 ms | 118 ms | 164 ms | about 92 MiB |
+| 100,000 | 296 ms | 287 ms | 400 ms | 683 ms | about 92 MiB |
 
 The timestamps span at most 3.5 hours; the requested/attested fixture interval is
 three days. These are single local samples, not statistically established speed

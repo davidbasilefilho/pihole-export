@@ -64,15 +64,19 @@ export const runOffline = (args: ReadonlyArray<string>) =>
     );
     filters.clientIp = flags.get("client-ip") ?? "";
     filters.clientName = flags.get("client-name") ?? "";
-    return yield* backend<unknown>({
-      op: "offline",
-      input: {
-        snapshot: flags.get("offline"),
-        coverage: flags.get("coverage"),
-        isolatedBackup: true,
-        filters,
-        path: flags.get("output"),
-        format: flags.get("format") ?? "csv",
+    return yield* backend<unknown>(
+      {
+        op: "offline",
+        input: {
+          snapshot: flags.get("offline"),
+          coverage: flags.get("coverage"),
+          isolatedBackup: true,
+          filters,
+          path: flags.get("output"),
+          format: flags.get("format") ?? "csv",
+        },
       },
-    });
+      undefined,
+      true,
+    );
   });

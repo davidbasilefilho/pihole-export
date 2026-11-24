@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, writeFileSync, rmSync, readFileSync, lstatSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
@@ -12,10 +12,36 @@ import type { QuerySpec } from "./query";
 declare const __EMBEDDED_BACKEND__: string;
 let extractedBackend: string | undefined;
 
-export const backendBinary = () => {
+const offlineTemporaryDirectory = () => {
+  if (process.platform !== "linux")
+    throw new Error("Offline isolation checks currently support Linux only");
+  const mount = readFileSync("/proc/self/mountinfo", "utf8")
+    .split("\n")
+    .flatMap((line) => {
+      const [left, right] = line.split(" - ");
+      const point = left?.split(" ")[4];
+      if (!point || !right || !(point === "/" || point === "/tmp")) return [];
+      return [{ point, kind: right.split(" ")[0] }];
+    })
+    .sort((a, b) => b.point.length - a.point.length)[0];
+  if (
+    !mount ||
+    !["ext2", "ext3", "ext4", "xfs", "btrfs", "zfs", "tmpfs", "overlay"].includes(
+      mount.kind ?? "",
+    ) ||
+    lstatSync("/tmp").isSymbolicLink()
+  ) {
+    throw new Error("Offline backend extraction requires independent local /tmp storage");
+  }
+  return "/tmp";
+};
+
+export const backendBinary = (offline = false) => {
   if (typeof __EMBEDDED_BACKEND__ !== "undefined") {
     if (extractedBackend !== undefined) return extractedBackend;
-    const directory = mkdtempSync(join(tmpdir(), "pihole-backend-"));
+    const directory = mkdtempSync(
+      join(offline ? offlineTemporaryDirectory() : tmpdir(), "pihole-backend-"),
+    );
     const path = join(
       directory,
       process.platform === "win32" ? "pihole-backend.exe" : "pihole-backend",
@@ -71,10 +97,14 @@ export interface ExportProgress {
   readonly phase: "waiting" | "writing" | "finalizing";
   readonly rows: number;
 }
-export const backend = <T>(request: unknown, onProgress?: (progress: ExportProgress) => void) =>
+export const backend = <T>(
+  request: unknown,
+  onProgress?: (progress: ExportProgress) => void,
+  offline = false,
+) =>
   Effect.tryPromise({
     try: async (signal): Promise<T> => {
-      const child = Bun.spawn([backendBinary()], {
+      const child = Bun.spawn([backendBinary(offline)], {
         stdin: "pipe",
         stdout: "pipe",
         stderr: "ignore",

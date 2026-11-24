@@ -429,6 +429,20 @@ fn offline_tracked(
         )?);
     }
     form["disk"] = json!(true);
+    for key in [
+        "domain",
+        "clientIp",
+        "clientName",
+        "upstream",
+        "type",
+        "status",
+        "reply",
+        "dnssec",
+    ] {
+        if let Some(value) = form[key].as_str() {
+            form[key] = json!(value.trim());
+        }
+    }
     let spec: Spec =
         serde_json::from_value(form).map_err(|_| invalid("Invalid offline filters"))?;
     spec.validate_interval()?;
@@ -555,15 +569,18 @@ fn offline_tracked(
         .query(rusqlite::params_from_iter(values))
         .map_err(db_error)?;
     let validation_ms = started.elapsed().as_millis();
-    let mut writer = Exporter::new(&request.path, &request.format)?;
-    let mut batch = Vec::with_capacity(1024);
+    let mut writer = Exporter::new_offline(&request.path, &request.format)?;
+    let parquet = request.format == "parquet";
+    let batch_rows = if parquet { 65_536 } else { 1024 };
+    let batch_bytes_target = if parquet { 16 * 1_048_576 } else { 1_048_576 };
+    let mut batch = Vec::with_capacity(batch_rows);
     let mut read_us = 0u128;
     loop {
         cancelled(cancel)?;
         progress("reading", log.rows);
         let read_started = Instant::now();
         let mut batch_bytes = 0;
-        while batch.len() < 1024 && batch_bytes < 1_048_576 {
+        while batch.len() < batch_rows && batch_bytes < batch_bytes_target {
             let next = rows.next().map_err(db_error)?;
             let Some(row) = next else {
                 break;
@@ -581,6 +598,11 @@ fn offline_tracked(
         log.local_read_us = read_us;
         if batch.is_empty() {
             break;
+        }
+        if parquet && log.pages >= 4096 {
+            return Err(invalid(
+                "Parquet footer budget exceeded (4096 row groups); destination unchanged. Use CSV, JSONL or SQLite for larger offline results",
+            ));
         }
         log.phase("writing");
         progress("writing", log.rows);
@@ -603,7 +625,7 @@ fn offline_tracked(
     let mut result = writer.finish()?;
     result["source"] = json!("offline_snapshot");
     result["coverage"] = json!({"from":coverage.from,"until":coverage.until,"observedFirst":first,"observedLast":last,"basis":"operator-attested; not inferred from query extrema"});
-    result["metrics"] = json!({"totalMs":started.elapsed().as_millis(),"readUs":read_us,"validationMs":validation_ms,"batchBytesTarget":1048576,"batchRows":1024,"networkRequests":0,"snapshotBytes":fs::metadata(snapshot).map(|m|m.len()).unwrap_or(0)});
+    result["metrics"] = json!({"totalMs":started.elapsed().as_millis(),"readUs":read_us,"validationMs":validation_ms,"batchBytesTarget":batch_bytes_target,"batchRows":batch_rows,"networkRequests":0,"snapshotBytes":fs::metadata(snapshot).map(|m|m.len()).unwrap_or(0)});
     Ok(result)
 }
 
@@ -658,11 +680,11 @@ mod tests {
         }
         request.format = "jsonl".into();
         for (key, value) in [
-            ("domain", "a.*"),
+            ("domain", "  a.*  "),
             ("clientIp", "192.0.2.*"),
             ("clientName", "synth*"),
             ("upstream", "blocklist"),
-            ("type", "a"),
+            ("type", " a "),
             ("status", "gravity_cname"),
             ("reply", "IP"),
             ("dnssec", "SECURE"),
