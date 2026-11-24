@@ -10,7 +10,7 @@ export interface FilterRequest {
 }
 
 export const prepareFilterRequest = (filters: FilterForm, action: FilterAction) =>
-  Schema.decodeUnknown(FilterForm)(filters).pipe(
+  Schema.decodeUnknownEffect(FilterForm)(filters).pipe(
     Effect.mapError((error) => new ValidationError({ message: String(error) })),
     Effect.flatMap(toQuerySpec),
     Effect.map((spec): FilterRequest => ({ action, spec })),

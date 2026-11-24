@@ -47,7 +47,7 @@ jobs:
         run: |
           VERSION="$(bun -e 'console.log((await Bun.file("package.json").json()).version)')"
           ASSET="pihole-export-v${VERSION}-${{ matrix.platform }}${{ matrix.extension }}"
-          mv "${{ matrix.binary }}" "$ASSET"
+          tar -czf "$ASSET.tar.gz" -C bin "pihole-export${{ matrix.extension }}" "pihole-backend${{ matrix.extension }}"
 
       - uses: actions/upload-artifact@v4
         with:

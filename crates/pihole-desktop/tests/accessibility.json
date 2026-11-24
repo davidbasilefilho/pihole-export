@@ -1,0 +1,148 @@
+[
+  {
+    "key": "auth",
+    "name": "Auth: password",
+    "role": "button",
+    "states": null
+  },
+  {
+    "key": "format",
+    "name": "Format: csv",
+    "role": "button",
+    "states": null
+  },
+  {
+    "key": "disk",
+    "name": "Disk: on",
+    "role": "button",
+    "states": null
+  },
+  {
+    "key": "field-0",
+    "name": "Pi-hole URL",
+    "role": "text-input",
+    "states": null
+  },
+  {
+    "key": "field-1",
+    "name": "Password / session ID",
+    "role": "password-input",
+    "states": null
+  },
+  {
+    "key": "field-2",
+    "name": "TOTP",
+    "role": "password-input",
+    "states": null
+  },
+  {
+    "key": "field-3",
+    "name": "From (local)",
+    "role": "text-input",
+    "states": null
+  },
+  {
+    "key": "field-4",
+    "name": "Until (exclusive)",
+    "role": "text-input",
+    "states": null
+  },
+  {
+    "key": "field-5",
+    "name": "Timezone",
+    "role": "text-input",
+    "states": null
+  },
+  {
+    "key": "field-6",
+    "name": "Domain",
+    "role": "text-input",
+    "states": null
+  },
+  {
+    "key": "field-7",
+    "name": "Client IP",
+    "role": "text-input",
+    "states": null
+  },
+  {
+    "key": "field-8",
+    "name": "Client name",
+    "role": "text-input",
+    "states": null
+  },
+  {
+    "key": "field-9",
+    "name": "Upstream",
+    "role": "text-input",
+    "states": null
+  },
+  {
+    "key": "field-10",
+    "name": "Type",
+    "role": "text-input",
+    "states": null
+  },
+  {
+    "key": "field-11",
+    "name": "Status",
+    "role": "text-input",
+    "states": null
+  },
+  {
+    "key": "field-12",
+    "name": "Reply",
+    "role": "text-input",
+    "states": null
+  },
+  {
+    "key": "field-13",
+    "name": "DNSSEC",
+    "role": "text-input",
+    "states": null
+  },
+  {
+    "key": "field-14",
+    "name": "Destination (local file)",
+    "role": "text-input",
+    "states": null
+  },
+  {
+    "key": "query",
+    "name": "Query",
+    "role": "button",
+    "states": null
+  },
+  {
+    "key": "next",
+    "name": "Next page",
+    "role": "button",
+    "states": [
+      "disabled"
+    ]
+  },
+  {
+    "key": "export",
+    "name": "Export to file",
+    "role": "button",
+    "states": null
+  },
+  {
+    "key": "cancel",
+    "name": "Cancel",
+    "role": "button",
+    "states": null
+  },
+  {
+    "key": "status",
+    "name": "Choose dates and a destination. No request runs until you click Query or Export.",
+    "role": "label",
+    "states": null
+  },
+  {
+    "key": "results",
+    "name": "",
+    "role": "label",
+    "states": null
+  }
+]

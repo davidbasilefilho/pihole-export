@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 
+import { backend } from "./backend";
 import { ConnectionForm, FilterForm, Query, ValidationError } from "./model";
-import { localToEpochSeconds } from "./time";
 
 export interface QuerySpec {
   readonly from: number;
@@ -30,13 +30,9 @@ export const baseUrl = (form: ConnectionForm) =>
   });
 
 export const toQuerySpec = (form: FilterForm) =>
-  Effect.gen(function* () {
-    const from = yield* localToEpochSeconds(form.from, form.timezone);
-    const until = yield* localToEpochSeconds(form.until, form.timezone);
-    if (until <= from)
-      return yield* new ValidationError({ message: "Until must be later than From" });
-    return { ...form, from, until } satisfies QuerySpec;
-  });
+  backend<QuerySpec>({ op: "spec", filters: form }).pipe(
+    Effect.map((spec) => ({ ...form, ...spec })),
+  );
 
 const textFilters = [
   "domain",

@@ -13,9 +13,8 @@ import {
   fetchSuggestions,
   logout,
   mutateDomain,
-  streamQueryPages,
 } from "./lib/api";
-import { exportQueryPages } from "./lib/export";
+import { exportNative } from "./lib/backend";
 import {
   dispatchFilterRequest,
   prepareFilterRequest,
@@ -175,13 +174,13 @@ export function App() {
     const fiber = runtime.runFork(
       effect.pipe(
         Effect.tap((value) => Effect.sync(() => success(value))),
-        Effect.catchAll((error) =>
+        Effect.catch((error) =>
           Effect.sync(() => setMessage(error instanceof Error ? error.message : String(error))),
         ),
         Effect.ensuring(Effect.sync(() => id === runId && setBusy(false))),
       ),
     );
-    cancel = () => Effect.runFork(Fiber.interruptFork(fiber));
+    cancel = () => Effect.runFork(Fiber.interrupt(fiber));
   };
 
   const connectionForm = (): Mutable<ConnectionForm> => ({
@@ -194,7 +193,7 @@ export function App() {
   });
 
   const connect = () => {
-    const parsed = Schema.decodeUnknown(ConnectionForm)(connectionForm()).pipe(
+    const parsed = Schema.decodeUnknownEffect(ConnectionForm)(connectionForm()).pipe(
       Effect.mapError((error) => new ValidationError({ message: String(error) })),
     );
     runEffect(
@@ -289,7 +288,7 @@ export function App() {
     const path = exportPath().trim();
     if (active === null || spec === null) return;
     if (path === "") return setMessage("Enter an export destination");
-    runEffect(exportQueryPages(path, exportFormat(), streamQueryPages(active, spec)), (result) => {
+    runEffect(exportNative(active, spec, path, exportFormat()), (result) => {
       setScreen(exportReturnScreen());
       setMessage(`Exported ${result.count.toLocaleString()} rows → ${result.path}`);
     });
@@ -365,7 +364,7 @@ export function App() {
         ? done
         : logout(active).pipe(
             Effect.timeout("1 second"),
-            Effect.catchAll(() => Effect.void),
+            Effect.catch(() => Effect.void),
             Effect.andThen(done),
           ),
     );

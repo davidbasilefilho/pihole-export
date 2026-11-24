@@ -1,0 +1,36 @@
+name: Validate
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  core-cli:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: jdx/mise-action@v4
+      - run: bun install --frozen-lockfile
+      - run: hk validate
+      - run: mise run check
+      - run: mise run test
+      - run: mise run compile
+      - name: Real terminal with synthetic HTTP fixture
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          python3 -m venv .venv
+          .venv/bin/pip install pexpect==4.9.0 pyte==0.8.2
+          .venv/bin/python test/pty_export.py
+  desktop:
+    # macOS supplies native window/link libraries; no system package installation.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: jdx/mise-action@v4
+      - run: mise run desktop-check
+      - run: cargo build -p pihole-desktop --locked

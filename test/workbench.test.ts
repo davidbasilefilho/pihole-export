@@ -1,10 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import type { KeyEvent } from "@opentui/core";
-import { BunFileSystem } from "@effect/platform-bun";
-import { Effect } from "effect";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
+import { BunFileSystem } from "@effect/platform-bun";
+import type { KeyEvent } from "@opentui/core";
+import { Effect } from "effect";
 
 import { analyzeQueries } from "../src/lib/analytics";
 import { parseHeadlessOptions } from "../src/lib/headless";
@@ -64,9 +65,7 @@ describe("analytics", () => {
 describe("result workbench", () => {
   test("searches locally, sorts deterministically, and refines server filters", () => {
     const rows = [makeQuery(1), makeQuery(2, { domain: "zebra.example" })];
-    expect(searchAndSortQueries(rows, "desktop", "time-desc").map((row) => row.id)).toEqual([
-      2,
-    ]);
+    expect(searchAndSortQueries(rows, "desktop", "time-desc").map((row) => row.id)).toEqual([2]);
     expect(searchAndSortQueries(rows, "", "domain").map((row) => row.domain)).toEqual([
       "host-1.example",
       "zebra.example",
@@ -177,9 +176,7 @@ describe("local timestamp input", () => {
     expect(formatLocalDateTimeInput("16")).toBe("16/");
     expect(formatLocalDateTimeInput("16", "16/")).toBe("1");
     expect(formatLocalDateTimeInput("30072026082")).toBe("30/07/2026 08:2");
-    expect(formatLocalDateTimeInput("30/07/2026 08:", "30/07/2026 08:2")).toBe(
-      "30/07/2026 08",
-    );
+    expect(formatLocalDateTimeInput("30/07/2026 08:", "30/07/2026 08:2")).toBe("30/07/2026 08");
     expect(formatLocalDateTimeInput("300720260")).toBe("30/07/2026 0");
     expect(formatLocalDateTimeInput("30/07/2026 ", "30/07/2026 0")).toBe("30/07/2026");
   });

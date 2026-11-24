@@ -23,7 +23,7 @@ if (isHeadlessInvocation(args)) {
       try: () => render(() => <App />, { exitOnCtrlC: false }),
       catch: (error) => error,
     }).pipe(
-      Effect.catchAll((error) =>
+      Effect.catch((error) =>
         Effect.sync(() => process.stderr.write(`pihole-export: ${String(error)}\n`)),
       ),
     ),

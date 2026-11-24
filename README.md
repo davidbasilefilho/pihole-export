@@ -21,18 +21,43 @@ A responsive keyboard-and-mouse terminal workbench for querying and exporting co
 ## Requirements
 
 - Pi-hole v6 with HTTP API access
-- [mise](https://mise.jdx.dev/) (recommended), or Bun 1.4 and Zig 0.16
+- [mise](https://mise.jdx.dev/) for the pinned Bun, Rust (rustfmt, Clippy, rust-analyzer) and hk tools; no system-wide tool installation is needed.
+- A C linker for bundled SQLite. Desktop builds additionally need the native libraries described in [the migration notes](docs/rust-migration.md).
 - A true-color terminal
 
 ## Run
 
 ```sh
 mise install
-bun install
+bun install --frozen-lockfile
+mise run hooks
 mise run dev
 ```
 
 Enter an IP/domain such as `10.200.0.242`, or a full URL such as `https://pi.hole`. Use HTTPS whenever the terminal is not on the trusted Pi-hole network.
+
+## Rust core and native desktop
+
+`pihole-core` owns HTTP authentication, query decoding, timestamp conversion, pagination,
+cancellation and all four file writers. The existing Bun CLI/TUI calls the sibling
+`pihole-backend` process through stdin/stdout; secrets are never command arguments.
+Release archives must be extracted together: keep `pihole-export` and `pihole-backend`
+in the same directory. `PIHOLE_BACKEND_PATH` can select an explicit backend path.
+
+The native Rune app links the same crate directly:
+
+```sh
+mise run desktop
+```
+
+It provides all query filters, password/TOTP/session/no-auth modes, a 100-row paginated
+preview, the available-history timestamps reported by the API, direct export in all
+four formats, the heavy-query confirmation and cancellation. Its destination is a
+path on the machine running the app. Run the CLI/TUI on the DNS server with an absolute
+`--output` path to write on that server. Desktop credentials remain only in process
+memory and are not saved; each job logs out only sessions it created.
+
+See [architecture, dependency migrations and validation](docs/rust-migration.md).
 
 ## Controls
 
@@ -118,7 +143,7 @@ The suite covers authentication success/failure, runtime schemas, every filter a
 
 ### Interactive PTY regression
 
-After `bun run compile`, exercise the compiled TUI through a real pseudo-terminal:
+After `mise run compile`, exercise the compiled TUI through a real pseudo-terminal:
 
 ```sh
 python3 -m venv /tmp/pihole-export-pty-venv
@@ -139,7 +164,7 @@ Passwords, TOTP values, and session IDs are never written to configuration, logs
 
 ## Upstream compatibility
 
-Pi-hole serves version-matched API documentation at `http://pi.hole/api/docs`. This project follows the current Pi-hole FTL OpenAPI/source behavior and decodes every external payload with Effect Schema. OpenTUI and Solid are pinned to their required compatible versions; update them together.
+Pi-hole serves version-matched API documentation at `http://pi.hole/api/docs`. This project follows the current Pi-hole FTL OpenAPI/source behavior and decodes query/auth payloads in Rust with Serde; UI forms and presets use Effect Schema. OpenTUI and Solid are pinned to their required compatible versions; update them together.
 
 ## License
 

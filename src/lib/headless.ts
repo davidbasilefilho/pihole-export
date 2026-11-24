@@ -1,7 +1,7 @@
 import { Effect, Schema } from "effect";
 
-import { authenticate, logout, streamQueryPages } from "./api";
-import { exportQueryPages } from "./export";
+import { authenticate, logout } from "./api";
+import { exportNative } from "./backend";
 import {
   AuthMethod,
   CliError,
@@ -74,10 +74,14 @@ export const parseHeadlessOptions = (
       try: () => defaultRange(flags.get("timezone")),
       catch: (error) => new CliError({ message: `Invalid timezone: ${String(error)}` }),
     });
-    const auth = yield* Schema.decodeUnknown(AuthMethod)(flags.get("auth") ?? "password").pipe(
+    const auth = yield* Schema.decodeUnknownEffect(AuthMethod)(
+      flags.get("auth") ?? "password",
+    ).pipe(
       Effect.mapError(() => new CliError({ message: "--auth must be password, session, or none" })),
     );
-    const format = yield* Schema.decodeUnknown(ExportFormat)(flags.get("format") ?? "csv").pipe(
+    const format = yield* Schema.decodeUnknownEffect(ExportFormat)(
+      flags.get("format") ?? "csv",
+    ).pipe(
       Effect.mapError(
         () => new CliError({ message: "--format must be csv, jsonl, sqlite, or parquet" }),
       ),
@@ -116,10 +120,10 @@ export const parseHeadlessOptions = (
     };
     if (raw.output.trim() === "")
       return yield* new CliError({ message: "Headless mode requires --output" });
-    const connection = yield* Schema.decodeUnknown(ConnectionForm)(raw.connection).pipe(
+    const connection = yield* Schema.decodeUnknownEffect(ConnectionForm)(raw.connection).pipe(
       Effect.mapError((error) => new ValidationError({ message: String(error) })),
     );
-    const filters = yield* Schema.decodeUnknown(FilterForm)(raw.filters).pipe(
+    const filters = yield* Schema.decodeUnknownEffect(FilterForm)(raw.filters).pipe(
       Effect.mapError((error) => new ValidationError({ message: String(error) })),
     );
     return { connection, filters, format, output: raw.output } satisfies HeadlessOptions;
@@ -139,11 +143,10 @@ export const runHeadless = (
     const spec = yield* toQuerySpec(options.filters);
     return yield* Effect.acquireUseRelease(
       authenticate(url, options.connection),
-      (connection) =>
-        exportQueryPages(options.output, options.format, streamQueryPages(connection, spec)),
+      (connection) => exportNative(connection, spec, options.output, options.format),
       (connection) =>
         Effect.suspend(() => logout(connection)).pipe(
-          Effect.catchAll(() => Effect.void),
+          Effect.catch(() => Effect.void),
           Effect.asVoid,
         ),
     );
