@@ -1,3 +1,4 @@
+from contextlib import closing
 """Exercise extracted release files with one synthetic query on loopback."""
 import csv
 import json
@@ -53,7 +54,7 @@ try:
                     if fmt == 'csv': assert len(list(csv.DictReader(dest.open())))==1
                     if fmt == 'parquet': assert dest.read_bytes()[:4]==dest.read_bytes()[-4:]==b'PAR1'
                     if fmt == 'sqlite':
-                        with sqlite3.connect(dest) as db:
+                        with closing(sqlite3.connect(dest)) as db:
                             table=db.execute("select name from sqlite_master where type='table'").fetchone()[0]
                             assert db.execute('select count(*) from "'+table+'"').fetchone()[0]==1
             else:
