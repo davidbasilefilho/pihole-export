@@ -8,6 +8,18 @@ fn field<T: serde::de::DeserializeOwned>(request: &Value, key: &str) -> Result<T
         .map_err(|_| Error::new("ValidationError", format!("Invalid {key}")))
 }
 async fn execute(request: Value, cancel: CancellationToken) -> Result<Value> {
+    if request["op"] == "offline" {
+        let input: pihole_core::OfflineRequest = field(&request, "input")?;
+        return tokio::task::spawn_blocking(move || {
+            pihole_core::export_offline(&input, &cancel, |phase, rows| {
+                use std::io::Write;
+                println!("{}", json!({"progress":{"phase":phase,"rows":rows}}));
+                let _ = std::io::stdout().flush();
+            })
+        })
+        .await
+        .map_err(|_| Error::new("ValidationError", "Offline worker failed"))?;
+    }
     let api = Api::new(cancel.clone())?;
     match request["op"].as_str().unwrap_or("") {
         "time" => Ok(json!(pihole_core::local_time(

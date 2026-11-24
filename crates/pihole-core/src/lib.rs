@@ -7,3 +7,6 @@ mod model;
 pub use api::*;
 pub use export::*;
 pub use model::*;
+
+mod offline;
+pub use offline::{OfflineRequest, export_offline};

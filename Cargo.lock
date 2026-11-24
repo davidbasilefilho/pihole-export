@@ -2597,6 +2597,7 @@ dependencies = [
  "csv",
  "parquet",
  "reqwest",
+ "ring",
  "rusqlite",
  "serde",
  "serde_json",

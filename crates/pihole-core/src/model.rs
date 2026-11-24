@@ -134,13 +134,17 @@ pub struct Spec {
     pub dnssec: String,
 }
 impl Spec {
-    pub fn validate(&self) -> Result<()> {
+    pub fn validate_interval(&self) -> Result<()> {
         if !self.from.is_finite() || !self.until.is_finite() || self.until <= self.from {
             return Err(Error::new(
                 "ValidationError",
                 "Until must be later than From",
             ));
         }
+        Ok(())
+    }
+    pub fn validate(&self) -> Result<()> {
+        self.validate_interval()?;
         if self.until - self.from > 48.0 * 3600.0 {
             return Err(Error::new(
                 "ValidationError",

@@ -1,0 +1,176 @@
+{
+  "scope": "Synthetic local snapshots; no annual interval or production data",
+  "samplesPerSize": 1,
+  "rssMeaning": "wait4 ru_maxrss: maximum process RSS, not aggregate concurrent RSS",
+  "physicalIo": "0 input/output blocks on this cached/tmpfs workspace; not disk bandwidth",
+  "measurements": [
+    {
+      "format": "csv",
+      "rows": 20000,
+      "elapsedSeconds": 0.22518193700125266,
+      "rowsPerSecond": 88817,
+      "outputBytes": 3594032,
+      "maxProcessRssKiB": 94336,
+      "userSeconds": 0.21187799999999998,
+      "systemSeconds": 0.060828999999999994,
+      "fsInputBlocks": 0,
+      "fsOutputBlocks": 0,
+      "core": {
+        "batchBytesTarget": 1048576,
+        "batchRows": 1024,
+        "networkRequests": 0,
+        "readUs": 38070,
+        "snapshotBytes": 806912,
+        "totalMs": 125,
+        "validationMs": 8
+      }
+    },
+    {
+      "format": "jsonl",
+      "rows": 20000,
+      "elapsedSeconds": 0.1585039029996551,
+      "rowsPerSecond": 126180,
+      "outputBytes": 7433894,
+      "maxProcessRssKiB": 94336,
+      "userSeconds": 0.128382,
+      "systemSeconds": 0.034595,
+      "fsInputBlocks": 0,
+      "fsOutputBlocks": 0,
+      "core": {
+        "batchBytesTarget": 1048576,
+        "batchRows": 1024,
+        "networkRequests": 0,
+        "readUs": 16552,
+        "snapshotBytes": 806912,
+        "totalMs": 59,
+        "validationMs": 7
+      }
+    },
+    {
+      "format": "sqlite",
+      "rows": 20000,
+      "elapsedSeconds": 0.12389006900048116,
+      "rowsPerSecond": 161433,
+      "outputBytes": 4399104,
+      "maxProcessRssKiB": 94208,
+      "userSeconds": 0.08331999999999999,
+      "systemSeconds": 0.044871999999999995,
+      "fsInputBlocks": 0,
+      "fsOutputBlocks": 0,
+      "core": {
+        "batchBytesTarget": 1048576,
+        "batchRows": 1024,
+        "networkRequests": 0,
+        "readUs": 14981,
+        "snapshotBytes": 806912,
+        "totalMs": 66,
+        "validationMs": 7
+      }
+    },
+    {
+      "format": "parquet",
+      "rows": 20000,
+      "elapsedSeconds": 0.12330767400089826,
+      "rowsPerSecond": 162196,
+      "outputBytes": 1027689,
+      "maxProcessRssKiB": 94208,
+      "userSeconds": 0.077984,
+      "systemSeconds": 0.04545,
+      "fsInputBlocks": 0,
+      "fsOutputBlocks": 0,
+      "core": {
+        "batchBytesTarget": 1048576,
+        "batchRows": 1024,
+        "networkRequests": 0,
+        "readUs": 15210,
+        "snapshotBytes": 806912,
+        "totalMs": 63,
+        "validationMs": 7
+      }
+    },
+    {
+      "format": "csv",
+      "rows": 100000,
+      "elapsedSeconds": 0.40404749199842627,
+      "rowsPerSecond": 247496,
+      "outputBytes": 18014033,
+      "maxProcessRssKiB": 94336,
+      "userSeconds": 0.35520599999999997,
+      "systemSeconds": 0.058107,
+      "fsInputBlocks": 0,
+      "fsOutputBlocks": 0,
+      "core": {
+        "batchBytesTarget": 1048576,
+        "batchRows": 1024,
+        "networkRequests": 0,
+        "readUs": 84631,
+        "snapshotBytes": 4001792,
+        "totalMs": 283,
+        "validationMs": 43
+      }
+    },
+    {
+      "format": "jsonl",
+      "rows": 100000,
+      "elapsedSeconds": 0.5347738410000602,
+      "rowsPerSecond": 186995,
+      "outputBytes": 37213895,
+      "maxProcessRssKiB": 94080,
+      "userSeconds": 0.465285,
+      "systemSeconds": 0.138657,
+      "fsInputBlocks": 0,
+      "fsOutputBlocks": 0,
+      "core": {
+        "batchBytesTarget": 1048576,
+        "batchRows": 1024,
+        "networkRequests": 0,
+        "readUs": 115081,
+        "snapshotBytes": 4001792,
+        "totalMs": 406,
+        "validationMs": 42
+      }
+    },
+    {
+      "format": "sqlite",
+      "rows": 100000,
+      "elapsedSeconds": 0.44541263899918704,
+      "rowsPerSecond": 224511,
+      "outputBytes": 22085632,
+      "maxProcessRssKiB": 94336,
+      "userSeconds": 0.408249,
+      "systemSeconds": 0.056233,
+      "fsInputBlocks": 0,
+      "fsOutputBlocks": 0,
+      "core": {
+        "batchBytesTarget": 1048576,
+        "batchRows": 1024,
+        "networkRequests": 0,
+        "readUs": 88043,
+        "snapshotBytes": 4001792,
+        "totalMs": 374,
+        "validationMs": 35
+      }
+    },
+    {
+      "format": "parquet",
+      "rows": 100000,
+      "elapsedSeconds": 0.4037775540000439,
+      "rowsPerSecond": 247661,
+      "outputBytes": 5136760,
+      "maxProcessRssKiB": 93824,
+      "userSeconds": 0.36023,
+      "systemSeconds": 0.053168,
+      "fsInputBlocks": 0,
+      "fsOutputBlocks": 0,
+      "core": {
+        "batchBytesTarget": 1048576,
+        "batchRows": 1024,
+        "networkRequests": 0,
+        "readUs": 82276,
+        "snapshotBytes": 4001792,
+        "totalMs": 343,
+        "validationMs": 33
+      }
+    }
+  ]
+}
