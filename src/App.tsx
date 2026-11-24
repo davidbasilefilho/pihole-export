@@ -17,6 +17,12 @@ import {
 } from "./lib/api";
 import { exportQueryPages } from "./lib/export";
 import {
+  dispatchFilterRequest,
+  prepareFilterRequest,
+  type FilterAction,
+  type FilterRequest,
+} from "./lib/filter-action";
+import {
   type AuthMethod,
   ConnectionForm,
   type ExportFormat,
@@ -36,13 +42,11 @@ import {
 import {
   baseUrl,
   defaultFilename,
-  needsHeavyQueryConfirmation,
   type QuerySpec,
   refineFiltersFromQuery,
   type RefinableField,
   type ResultSort,
   searchAndSortQueries,
-  toQuerySpec,
 } from "./lib/query";
 import { runtime, type AppServices } from "./lib/runtime";
 import { defaultRange } from "./lib/time";
@@ -135,7 +139,11 @@ export function App() {
   const [inspectTarget, setInspectTarget] = createSignal<Query | null>(null);
   const [busy, setBusy] = createSignal(false);
   const [message, setMessage] = createSignal("");
-  const [pendingSpec, setPendingSpec] = createSignal<QuerySpec | null>(null);
+  const [exportSpec, setExportSpec] = createSignal<QuerySpec | null>(null);
+  const [exportReturnScreen, setExportReturnScreen] = createSignal<"filters" | "results">(
+    "filters",
+  );
+  const [pendingRequest, setPendingRequest] = createSignal<FilterRequest | null>(null);
   const [pendingDomainAction, setPendingDomainAction] = createSignal<{
     readonly domain: string;
     readonly action: DomainMutationAction;
@@ -221,19 +229,19 @@ export function App() {
     });
   };
 
-  const submitFilters = () =>
-    runEffect(
-      Schema.decodeUnknown(FilterForm)(filters).pipe(
-        Effect.mapError((error) => new ValidationError({ message: String(error) })),
-        Effect.flatMap(toQuerySpec),
-      ),
-      (spec) => {
-        if (needsHeavyQueryConfirmation(spec)) {
-          setPendingSpec(spec);
-          setDialogFocus(0);
-          setScreen("confirm");
-        } else executeQuery(spec);
-      },
+  const filterHandlers = {
+    confirm: (request: FilterRequest) => {
+      setPendingRequest(request);
+      setDialogFocus(0);
+      setScreen("confirm");
+    },
+    query: executeQuery,
+    export: (spec: QuerySpec) => openExportForSpec(spec, "filters"),
+  };
+
+  const submitFilters = (action: FilterAction = "query") =>
+    runEffect(prepareFilterRequest(filters, action), (request) =>
+      dispatchFilterRequest(request, filterHandlers),
     );
 
   const stopWork = (text = "Cancelled") => {
@@ -243,22 +251,46 @@ export function App() {
     setMessage(text);
   };
 
-  const openExport = () => {
-    const spec = activeSpec();
-    if (spec === null) return setMessage("Run a query before exporting");
+  const openExportForSpec = (spec: QuerySpec, origin: "filters" | "results") => {
+    setExportSpec(spec);
+    setExportReturnScreen(origin);
     setExportPath(defaultFilename(spec, exportFormat()));
     setDialogFocus(1);
     setScreen("export");
   };
 
-  const exportRows = () => {
-    const active = connection();
+  const acceptPending = () => {
+    const request = pendingRequest();
+    setPendingRequest(null);
+    if (request !== null) dispatchFilterRequest(request, filterHandlers, true);
+  };
+
+  const openExport = () => {
     const spec = activeSpec();
+    if (spec !== null) openExportForSpec(spec, "results");
+  };
+
+  const changeExportFormat = (format: ExportFormat) => {
+    const spec = exportSpec();
+    if (spec !== null && exportPath() === defaultFilename(spec, exportFormat()))
+      setExportPath(defaultFilename(spec, format));
+    setExportFormat(format);
+  };
+
+  const cancelExport = () => {
+    if (busy()) stopWork("Export cancelled");
+    setScreen(exportReturnScreen());
+  };
+
+  const exportRows = () => {
+    if (busy()) return;
+    const active = connection();
+    const spec = exportSpec();
     const path = exportPath().trim();
     if (active === null || spec === null) return;
     if (path === "") return setMessage("Enter an export destination");
     runEffect(exportQueryPages(path, exportFormat(), streamQueryPages(active, spec)), (result) => {
-      setScreen("results");
+      setScreen(exportReturnScreen());
       setMessage(`Exported ${result.count.toLocaleString()} rows → ${result.path}`);
     });
   };
@@ -479,6 +511,7 @@ export function App() {
     openSuggestions,
     openPresets,
     submitFilters,
+    exportFilters: () => submitFilters("export"),
     stopWork,
     moveResultFocus: (delta) => {
       setResultControlMode(true);
@@ -502,8 +535,7 @@ export function App() {
     showFilters: () => setScreen("filters"),
     acceptConfirm: () => {
       if (dialogFocus() !== 0) return setScreen("filters");
-      const spec = pendingSpec();
-      if (spec !== null) executeQuery(spec);
+      acceptPending();
     },
     acceptDomainMutation: () => {
       if (dialogFocus() === 0) confirmDomainAction();
@@ -535,16 +567,13 @@ export function App() {
     cycleExportFormat: (delta) => {
       if (dialogFocus() !== 0) return;
       const formats: ReadonlyArray<ExportFormat> = ["csv", "jsonl", "sqlite", "parquet"];
-      setExportFormat(moveCyclic(formats, exportFormat(), delta));
+      changeExportFormat(moveCyclic(formats, exportFormat(), delta));
     },
     exportRows: () => {
-      if (dialogFocus() === 3) setScreen("results");
+      if (dialogFocus() === 3) cancelExport();
       else if (dialogFocus() !== 0) exportRows();
     },
-    cancelExport: () => {
-      if (busy()) stopWork("Export cancelled");
-      setScreen("results");
-    },
+    cancelExport,
     presetControlCount: () => 3 + presets().length * 2,
     activatePreset: () => {
       if (dialogFocus() === 2) return setScreen(returnScreen());
@@ -604,7 +633,8 @@ export function App() {
                 setReturnScreen("filters");
                 openPresets();
               }}
-              onSubmit={submitFilters}
+              onSubmit={() => submitFilters()}
+              onExport={() => submitFilters("export")}
             />
           </Match>
           <Match when={screen() === "results"}>
@@ -693,10 +723,7 @@ export function App() {
         <ConfirmDialog
           focus={dialogFocus()}
           onFocus={setDialogFocus}
-          onAccept={() => {
-            const spec = pendingSpec();
-            if (spec !== null) executeQuery(spec);
-          }}
+          onAccept={acceptPending}
           onCancel={() => setScreen("filters")}
         />
       </Show>
@@ -769,16 +796,9 @@ export function App() {
           busy={busy()}
           onFocus={setDialogFocus}
           onPath={setExportPath}
-          onFormat={(format) => {
-            setExportFormat(format);
-            const spec = activeSpec();
-            if (spec !== null) setExportPath(defaultFilename(spec, format));
-          }}
+          onFormat={changeExportFormat}
           onExport={exportRows}
-          onCancel={() => {
-            if (busy()) stopWork("Export cancelled");
-            setScreen("results");
-          }}
+          onCancel={cancelExport}
         />
       </Show>
       <Show when={screen() === "presets"} fallback={<box />}>

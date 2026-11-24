@@ -18,6 +18,7 @@ export interface WorkbenchKeyboard {
   readonly openSuggestions: () => void;
   readonly openPresets: () => void;
   readonly submitFilters: () => void;
+  readonly exportFilters: () => void;
   readonly stopWork: () => void;
   readonly moveResultFocus: (delta: number) => void;
   readonly moveSelection: (delta: number) => void;
@@ -74,6 +75,10 @@ export const handleWorkbenchKey = (actions: WorkbenchKeyboard, key: KeyEvent) =>
       actions.toggleDisk();
     else if (actions.filterFocus() === 12 && key.name === "return") actions.openPresets();
     else if (actions.filterFocus() === 13 && key.name === "return") actions.submitFilters();
+    else if (actions.filterFocus() === 14 && key.name === "return") {
+      key.preventDefault();
+      actions.exportFilters();
+    }
     return;
   }
   if (current === "results") {

@@ -45,8 +45,10 @@ const values = (row: Query): ReadonlyArray<string | number | null> => [
   row.id,
 ];
 
-const record = (row: Query) =>
-  Object.fromEntries(columns.map((name, index) => [name, values(row)[index]]));
+const record = (row: Query) => {
+  const cells = values(row);
+  return Object.fromEntries(columns.map((name, index) => [name, cells[index]]));
+};
 
 const quote = (value: string | number | null) => {
   const text = value === null ? "" : String(value);
@@ -167,18 +169,24 @@ const parquetSchema: SchemaElement[] = [
   })),
 ];
 
-const parquetData = (rows: ReadonlyArray<Query>) =>
-  columns.map((name, index) => ({
+const parquetData = (rows: ReadonlyArray<Query>) => {
+  const data = columns.map((name) => ({
     name,
-    data: rows.map((row) => {
-      const value = values(row)[index];
-      return ["list_id", "ede_code", "query_id"].includes(name) &&
-        value !== null &&
-        value !== undefined
-        ? BigInt(value)
-        : value;
-    }),
+    data: [] as Array<string | number | bigint | null>,
   }));
+  for (const row of rows) {
+    const cells = values(row);
+    for (const [index, column] of data.entries()) {
+      const value = cells[index] ?? null;
+      column.data.push(
+        ["list_id", "ede_code", "query_id"].includes(column.name) && value !== null
+          ? BigInt(value)
+          : value,
+      );
+    }
+  }
+  return data;
+};
 
 const writeParquetStream = <E, R>(path: string, pages: Stream.Stream<QueryPage, E, R>) =>
   Effect.try({
