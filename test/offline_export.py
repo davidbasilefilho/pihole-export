@@ -136,6 +136,12 @@ def run(command, rows, trace):
         for extra in [['--host', 'never-connect.invalid'], ['--coverage', 'missing']]:
             failed = subprocess.run([*base, *extra], env=env, capture_output=True, text=True, timeout=60)
             assert failed.returncode != 0 and output.read_text() == 'previous'
+        blocker = root / 'log-location-is-a-file'
+        blocker.write_text('sentinel')
+        unlogged = subprocess.run(base, env={**env, 'XDG_STATE_HOME': str(blocker)}, capture_output=True, text=True, timeout=60)
+        assert unlogged.returncode == 0 and json.loads(unlogged.stdout)['count'] == rows, unlogged.stderr
+        assert blocker.read_text() == 'sentinel'
+        output.write_text('previous')
         bad_coverage = json.loads(coverage.read_text()); bad_coverage['sha256'] = '0' * 64
         coverage.write_text(json.dumps(bad_coverage))
         failed = subprocess.run(base, env=env, capture_output=True, text=True, timeout=60)

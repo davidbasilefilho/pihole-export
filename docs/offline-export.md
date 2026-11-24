@@ -139,7 +139,9 @@ never resumed automatically. Ctrl+C/termination requests cancellation; hard proc
 or machine failure can leave a partial file. Input errors never trigger online
 recovery. Persistent allowlisted diagnostics include `offline_export`, outcomes,
 rows/batches, write/finalization duration and local read time, without input/output
-paths, filters, host/IP, hash, credentials or DNS rows. JSON stdout contains the
+paths, filters, host/IP, hash, credentials or DNS rows. An unavailable or
+unverifiable log location disables logging without failing the export or touching
+an unknown mount. JSON stdout contains the
 result, declared/observed coverage and local metrics; progress stays in the backend
 protocol for future UI consumers.
 

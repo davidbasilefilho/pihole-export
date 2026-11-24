@@ -89,6 +89,7 @@ fn local_path(path: &Path) -> Result<()> {
                     .nth(4)?
                     .replace("\\040", " ")
                     .replace("\\011", "\t")
+                    .replace("\\012", "\n")
                     .replace("\\134", "\\");
                 part.starts_with(&point)
                     .then(|| (point.len(), right.split_whitespace().next().unwrap_or("")))
@@ -270,12 +271,18 @@ fn selection(spec: &Spec) -> Result<(String, Vec<Value>)> {
     if spec.r#type.eq_ignore_ascii_case("OTHER") {
         sql.push_str(" AND q.type>=100");
     } else if let Some(number) = spec.r#type.to_ascii_uppercase().strip_prefix("TYPE") {
+        if number.is_empty() || !number.bytes().all(|byte| byte.is_ascii_digit()) {
+            return Err(invalid("Invalid offline type filter"));
+        }
         let number: u16 = number
             .parse()
             .map_err(|_| invalid("Invalid offline type filter"))?;
         sql.push_str(" AND q.type=?");
         values.push(Value::Integer(100 + i64::from(number)));
     } else {
+        if spec.r#type.eq_ignore_ascii_case("NONE") {
+            return Err(invalid("Invalid offline type filter"));
+        }
         add_enum(&mut sql, &mut values, "q.type", &spec.r#type, TYPES)?;
     }
     add_enum(&mut sql, &mut values, "q.status", &spec.status, STATUS)?;
@@ -353,10 +360,9 @@ pub fn export_offline(
     for path in [&request.snapshot, &request.coverage, &request.path] {
         local_path(Path::new(path))?;
     }
-    let logs =
-        crate::logs_directory().ok_or_else(|| invalid("Cannot locate a local log directory"))?;
-    local_path(&logs)?;
-    let mut log = Diagnostic::new("offline_export", &request.format);
+    // Never touch an unknown log mount or fail a valid export for logging.
+    let logs = crate::logs_directory().filter(|path| local_path(path).is_ok());
+    let mut log = Diagnostic::at(logs, "offline_export", &request.format);
     let result = offline_tracked(request, cancel, &mut progress, &mut log);
     let result = if result.is_err() && cancel.is_cancelled() {
         Err(Error::cancelled())
@@ -827,5 +833,28 @@ mod tests {
         fs::remove_file(&request.snapshot).unwrap();
         assert!(export_offline(&request, &CancellationToken::new(), |_, _| {}).is_err());
         assert_eq!(fs::read_to_string(&request.path).unwrap(), "previous");
+    }
+    #[test]
+    fn custom_type_filters_match_api_validation_and_values() {
+        let (_dir, mut request) = fixture(3);
+        fs::write(&request.path, "previous").unwrap();
+        for invalid_type in ["TYPE+1", "NONE", "TYPE65536", "TYPE"] {
+            request.filters["type"] = json!(invalid_type);
+            assert!(export_offline(&request, &CancellationToken::new(), |_, _| {}).is_err());
+            assert_eq!(fs::read_to_string(&request.path).unwrap(), "previous");
+        }
+        let db = Connection::open(&request.snapshot).unwrap();
+        db.execute("UPDATE query_storage SET type=65380 WHERE id=1", [])
+            .unwrap();
+        drop(db);
+        rehash(&request);
+        request.filters["type"] = json!(" type65280 ");
+        assert_eq!(
+            export_offline(&request, &CancellationToken::new(), |_, _| {}).unwrap()["count"],
+            1
+        );
+        let row: serde_json::Value =
+            serde_json::from_str(fs::read_to_string(&request.path).unwrap().trim()).unwrap();
+        assert_eq!(row["type"], "TYPE65280");
     }
 }

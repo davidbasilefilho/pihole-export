@@ -42,7 +42,7 @@ impl Diagnostic {
     pub fn new(operation: &'static str, format: &str) -> Self {
         Self::at(logs_directory(), operation, format)
     }
-    fn at(directory: Option<PathBuf>, operation: &'static str, format: &str) -> Self {
+    pub(crate) fn at(directory: Option<PathBuf>, operation: &'static str, format: &str) -> Self {
         let id = format!(
             "{}-{}",
             chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default(),
