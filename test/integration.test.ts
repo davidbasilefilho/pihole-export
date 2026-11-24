@@ -359,11 +359,31 @@ describe("Pi-hole HTTP lifecycle", () => {
   }, 15_000);
 
   test("reports network and write failures as typed failures", async () => {
-    const network = await Effect.runPromiseExit(
-      authenticate("http://127.0.0.1:1", passwordForm("correct")).pipe(Effect.provide(HttpLive)),
-    );
-    expect(Exit.isFailure(network)).toBeTrue();
-    if (Exit.isFailure(network)) expect(Cause.pretty(network.cause)).toContain("NetworkError");
+    // Deterministic transport failure, independent of OS/firewall refusal timing.
+    let attempts = 0;
+    const broken = Bun.listen({
+      hostname: "127.0.0.1",
+      port: 0,
+      socket: {
+        open(socket) {
+          attempts++;
+          socket.end();
+        },
+        data() {},
+      },
+    });
+    try {
+      const network = await Effect.runPromiseExit(
+        authenticate(`http://127.0.0.1:${broken.port}`, passwordForm("correct")).pipe(
+          Effect.provide(HttpLive),
+        ),
+      );
+      expect(Exit.isFailure(network)).toBeTrue();
+      if (Exit.isFailure(network)) expect(Cause.pretty(network.cause)).toContain("NetworkError");
+      expect(attempts).toBe(3);
+    } finally {
+      broken.stop(true);
+    }
 
     const write = await Effect.runPromiseExit(
       writeCsv(temp, [makeQuery(1)]).pipe(Effect.provide(BunFileSystem.layer)),

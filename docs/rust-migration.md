@@ -104,7 +104,11 @@ the snapshot, run `UPDATE_SNAPSHOTS=1 cargo test -p pihole-desktop` and review t
 In this Linux workspace, the desktop compiled using existing runtime libraries via
 workspace-local linker aliases (no system install). The graphical smoke failed with
 `No suitable graphics adapter found`; there is no display server or Vulkan adapter.
-The following steps remain **manual on a desktop with a working GPU/display**:
+CI now runs the following as **separate steps** on macOS: a GPU-rendered snapshot
+and an actual native-window smoke with a wall-clock submission trace. Both passed in
+run 45420867602; the startup image was visually inspected. This is startup graphics
+validation, separate from the synthetic worker query/export tests and the terminal
+PTY test. The commands remain available for local reproduction:
 
 ```sh
 cargo run -p pihole-desktop -- --snap /tmp/pihole.png --tree /tmp/pihole-tree.json --settle
@@ -118,3 +122,16 @@ fixture response and Cancel. Do not use production credentials or DNS history fo
 validation. CI tests the core/CLI on Linux/macOS/Windows and Rune on macOS without
 installing system packages. No merge, deployment or production export is part of
 this change.
+
+## Cross-platform checkout and fixture fixes
+
+Windows CI initially failed formatting after a CRLF checkout. Before changing it,
+`core.autocrlf=true` reproduced `i/lf w/crlf` from `git ls-files --eol -- src test`
+and the same 30 oxfmt failures. `.gitattributes` now enforces LF; the same fresh
+checkout and the real Windows runner report `i/lf w/lf` and pass formatting.
+The matrix uses `fail-fast: false` so every platform completes independently.
+
+The network-error test uses a loopback TCP fixture that closes three accepted
+connections without HTTP responses. This verifies the actual retry/error path
+without assuming that every OS refuses connections to port 1 within five seconds.
+No production timeout or retry policy was relaxed to make the test pass.
