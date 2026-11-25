@@ -1,4 +1,4 @@
-# Offline snapshot export (Linux)
+# Offline snapshot export (Linux and Windows)
 
 The annual-history path reads an **already completed, self-contained local SQLite
 backup on a different machine with independent CPU, memory and storage**. It does
@@ -14,20 +14,62 @@ storage/compute or a trustworthy existing backup is unavailable, **stop**. No
 software can promise absolute DNS availability; this workflow avoids depending on
 production DNS or scheduling any production work when those conditions hold.
 
-The first supported platform is Linux. macOS/Windows fail closed before opening
-the input: their local-volume checks are not implemented. This is a CLI/core
-feature; the current GUI/TUI forms remain API clients and retain the 48-hour gate.
+Linux and Windows support this workflow through the CLI, TUI and GUI. macOS
+fails closed before opening the input because its local-volume checks are not implemented.
+The separate online API mode retains the 48-hour gate.
 That gate is temporary incident containment, **not** fulfillment of the annual goal.
+
+## Windows entry points
+
+Download the standalone Windows TUI or GUI EXE. No WSL, separate backend download,
+Python or database server is required. The TUI's connection screen offers **Offline
+snapshot (Ctrl+O)**; the GUI's mode button switches from **Online Pi-hole API** to
+**Offline snapshot (no API/DNS)**. Enter the existing snapshot, coverage/policy JSON,
+IANA timezone, interval, optional filters, format and absolute output path. Confirm
+independent compute/storage, then Export and Confirm. Cancel remains available.
+Progress reports local validation/reading/writing/finalization and processed rows;
+success is reported only after atomic output publication.
+
+**Query on disk / API disk is still HTTP** (`/api/queries?disk=true`): the production
+FTL reads its own database. It is not the offline workflow and does not become safe
+merely because a client runs on Windows. The 48-hour ceiling is not a safety guarantee.
+
+Use absolute drive paths such as `C:\Offline\snapshot.db`, on independent local
+storage. UNC paths, mapped network drives, SUBST aliases, reparse points (including
+junctions and cloud placeholders), alternate data streams and unknown drive mappings
+are refused before input traversal. Keep the executable, working directory, TEMP/TMP,
+SQLite temporary directory and output on verified local drives too. The TUI launcher
+checks its executable, cwd and TEMP before extracting its private bundled frontend;
+the same EXE runs the native Rust worker. Bundled frontend temporary/cache paths
+are confined to that private directory, and runtime preload/native-library overrides
+are ignored in the standalone launcher (development entry points remain separate). This does not establish physical isolation
+of SAN/iSCSI, VMs or shared underlying storage: the operator must verify that separately.
+Do not edit or replace paths while an export is running.
+
+```powershell
+# On a separate Windows machine with an already available, consistent backup:
+& '.\<exact-supported-Windows-TUI-asset>.exe' --offline C:\Offline\snapshot.db `
+  --coverage C:\Offline\coverage.json --isolated-backup `
+  --from 2026-09-01 --until 2026-09-04 --timezone UTC `
+  --format csv --output C:\Exports\history.csv
+```
+
+Replace the quoted executable path with the exact downloaded Windows TUI asset
+from a build containing offline support (the original v0.2.0 stable build supports Linux offline CLI only).
+No consistent backup is assumed to exist. If it or trustworthy coverage/policy records
+are missing, stop: neither UI acquires a backup or falls back to the API.
 
 ## Inputs and coverage
 
-Provide absolute local paths without symlinks. The worker checks each path against
-Linux mount information before inspecting it, including output, local logs, working directory and SQLite temporary paths.
-The compiled offline CLI extracts its embedded worker only under checked local
-`/tmp`, ignoring TMPDIR for extraction.
-Known network/automount/unknown filesystem types, UNC/URL syntax and `/etc/pihole`
-are rejected. Ext2/3/4, XFS, Btrfs, ZFS, tmpfs and overlay are accepted only under
-the operator's isolation confirmation. The runtime's temporary directory and the
+Provide absolute local paths without symlinks. **On Linux only**, the worker checks
+each path against Linux mount information before inspecting it, including output,
+local logs, working directory and SQLite temporary paths. The compiled Linux CLI
+extracts its embedded worker only under checked local `/tmp`, ignoring TMPDIR for
+extraction. Windows uses the native drive checks and private temporary directory
+described above.
+On Linux, known network/automount/unknown filesystem types, UNC/URL syntax and
+`/etc/pihole` are rejected. Ext2/3/4, XFS, Btrfs, ZFS, tmpfs and overlay are accepted
+only under the operator's isolation confirmation. The runtime's temporary directory and the
 executable must also be on independent local storage; do not use a network HOME or
 TMPDIR. Keep the input directory private and unchanged during the operation.
 
@@ -37,7 +79,8 @@ read-only with `immutable=1` (no locking or sidecar creation), uses a read trans
 integrity and references, and verifies its SHA-256 before processing and again
 before publishing output. It never issues backup or attach commands.
 
-The snapshot cannot establish continuous historical coverage by itself. The first
+No retention default proves a year exists: use the actual retained, independently
+attested backup coverage. The snapshot cannot establish continuous historical coverage by itself. The first
 and last recorded queries do not prove that retention/deletion gaps are absent,
 and FTL's `ftl` timestamps are not a completeness certificate. Supply coverage
 metadata from the operator's **existing backup/retention records**, tied to the
@@ -142,8 +185,8 @@ rows/batches, write/finalization duration and local read time, without input/out
 paths, filters, host/IP, hash, credentials or DNS rows. An unavailable or
 unverifiable log location disables logging without failing the export or touching
 an unknown mount. JSON stdout contains the
-result, declared/observed coverage and local metrics; progress stays in the backend
-protocol for future UI consumers.
+result, declared/observed coverage and local metrics. The GUI/TUI offline forms
+consume real phase/row events and show elapsed time without extra requests.
 
 `test/offline_export.py` creates only short synthetic fixtures, copies the compiled
 standalone TUI/CLI executable into a clean directory and validates all four

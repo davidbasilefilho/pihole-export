@@ -9,4 +9,4 @@ pub use export::*;
 pub use model::*;
 
 mod offline;
-pub use offline::{OfflineRequest, export_offline};
+pub use offline::{OfflineRequest, export_offline, local_path as offline_local_path};

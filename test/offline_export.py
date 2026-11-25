@@ -17,7 +17,7 @@ from contextlib import closing
 BASE = 1788220800
 
 def fixture(root, rows):
-    source = root / 'snapshot with spaces #?%.db'
+    source = root / ('snapshot with spaces #%.db' if os.name == 'nt' else 'snapshot with spaces #?%.db')
     with closing(sqlite3.connect(source)) as db:
         db.executescript('''
 CREATE TABLE ftl(id INTEGER PRIMARY KEY,value BLOB); INSERT INTO ftl VALUES(0,22);

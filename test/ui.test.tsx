@@ -146,7 +146,7 @@ test("filter layout groups scan cleanly at wide and narrow terminal sizes", asyn
       expect(frame).toContain("DOMAIN · CLIENT · UPSTREAM");
       expect(frame).toContain("DNS PROPERTIES");
       expect(frame).toContain("MODE · QUERY ACTION");
-      expect(frame).toContain("ON-DISK: OFF");
+      expect(frame).toContain("API DISK: OFF");
       if (size.width >= 80) expect(frame).toContain("FETCH QUERIES");
       else {
         for (let index = 0; index < 8; index += 1) await setup.mockMouse.scroll(30, 40, "down");

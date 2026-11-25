@@ -1,6 +1,7 @@
 import type { AuthMethod } from "../lib/model";
 
 export type Screen =
+  | "offline"
   | "connect"
   | "filters"
   | "results"
@@ -13,14 +14,22 @@ export type Screen =
   | "search"
   | "presets";
 
-export type ConnectFocus = "host" | "scheme" | "port" | "auth" | "secret" | "totp" | "connect";
+export type ConnectFocus =
+  | "host"
+  | "scheme"
+  | "port"
+  | "auth"
+  | "secret"
+  | "totp"
+  | "connect"
+  | "offline";
 
 export const connectControls = (method: AuthMethod): ReadonlyArray<ConnectFocus> =>
   method === "password"
-    ? ["scheme", "host", "port", "auth", "secret", "totp", "connect"]
+    ? ["scheme", "host", "port", "auth", "secret", "totp", "connect", "offline"]
     : method === "session"
-      ? ["scheme", "host", "port", "auth", "secret", "connect"]
-      : ["scheme", "host", "port", "auth", "connect"];
+      ? ["scheme", "host", "port", "auth", "secret", "connect", "offline"]
+      : ["scheme", "host", "port", "auth", "connect", "offline"];
 
 export const moveCyclic = <T>(items: ReadonlyArray<T>, current: T, delta: number): T => {
   if (items.length === 0) return current;

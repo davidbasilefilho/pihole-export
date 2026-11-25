@@ -119,11 +119,16 @@ Use `PIHOLE_PASSWORD`, `PIHOLE_TOTP`, or `PIHOLE_SESSION_ID` for authentication.
 
 ## Long or annual exports: isolated offline backup
 
-Use the existing **Linux offline CLI** on a separate machine with independent CPU,
+Use **Offline snapshot** (Linux/Windows CLI, TUI or GUI) on a separate machine with independent CPU,
 memory and storage. It reads an already-materialized, consistent local FTL SQLite
 snapshot without API calls, DNS lookups, backup creation or online fallback. Do not
 run it on the production DNS host, open a live database, or use shared production
 storage (including UNC/NFS/SMB or a competing VM/container).
+
+In the TUI, choose **Offline snapshot (Ctrl+O)** before connecting; in the GUI, switch
+the mode button to **Offline snapshot (no API/DNS)**. Windows uses absolute local
+drive paths and needs no WSL. The original v0.2.0 stable build has only the Linux CLI
+path; Windows/UI support requires a build containing this change.
 
 Read the [offline prerequisites, coverage and policy requirements](docs/offline-export.md)
 before exporting. A trustworthy existing backup must cover the entire requested
@@ -145,9 +150,8 @@ destination directory (this example requests only three days):
 prove physical separation automatically. Longer offline periods require matching
 backup coverage. Only short synthetic fixtures have been tested: offline progress,
 throughput and completion have **not been validated for a real year**. Measurements
-are not annual-duration estimates or a guarantee of DNS availability. Offline
-progress events currently remain in the backend protocol; the CLI emits its final
-JSON result, and the GUI/TUI forms remain API clients. See the linked guide for
+are not annual-duration estimates or a guarantee of DNS availability. The offline GUI/TUI show real local phases and processed-row counts; the headless
+CLI preserves its final JSON result on stdout. See the linked guide for
 supported schemas, formats, memory bounds and limitations.
 
 ## Short API exports

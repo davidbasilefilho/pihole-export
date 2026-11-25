@@ -18,7 +18,7 @@ pub fn logs_directory() -> Option<PathBuf> {
         .filter(|p| PathBuf::from(p).is_absolute())
         .map(PathBuf::from)
         .or_else(|| std::env::var_os("HOME").map(|p| PathBuf::from(p).join(".local/state")));
-    root.map(|p| p.join("pihole-export/logs"))
+    root.map(|p| p.join("pihole-export").join("logs"))
 }
 
 pub(crate) struct Diagnostic {

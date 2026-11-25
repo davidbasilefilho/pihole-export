@@ -26,6 +26,17 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: '3.13'
+      - name: Prepare isolated Windows offline network test
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Get-Service BFE,MpsSvc | Format-Table Name,Status,StartType
+          foreach ($name in @('BFE', 'MpsSvc')) {
+            $service = Get-Service $name
+            if ($service.StartType -eq 'Disabled') { Set-Service $name -StartupType Manual }
+            Start-Service $name
+          }
+          Get-NetFirewallProfile | Format-Table Name,Enabled,DefaultOutboundAction
       - name: Verify series resolution and execution
         shell: bash
         run: |
@@ -61,6 +72,12 @@ jobs:
         run: |
           python -m pip install pexpect==4.9.0 pyte==0.8.2
           python test/pty_export.py package-stage/tui/pihole-export
+      - name: Windows standalone offline entry points
+        if: runner.os == 'Windows'
+        timeout-minutes: 5
+        run: |
+          python -m pip install pywinpty==3.0.2 pyte==0.8.2
+          python test/windows_offline.py package-stage/tui/pihole-export.exe package-stage/gui/pihole-desktop.exe
       - uses: actions/upload-artifact@v7
         with:
           name: packages-${{ matrix.platform }}

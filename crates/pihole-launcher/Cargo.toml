@@ -1,0 +1,12 @@
+[package]
+name = "pihole-launcher"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+pihole-core = { path = "../pihole-core" }
+pihole-backend = { path = "../pihole-backend" }
+tempfile = "3"
+ctrlc = "3.5"

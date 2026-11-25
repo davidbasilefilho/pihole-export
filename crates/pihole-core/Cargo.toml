@@ -18,6 +18,10 @@ rusqlite = { version = "0.43", features = ["bundled", "hooks", "limits"] }
 parquet = { version = "60", default-features = false, features = ["snap"] }
 
 ring = "0.17.14"
+same-file = "1"
 
 [dev-dependencies]
 tempfile = "3"
+
+[target.'cfg(windows)'.dependencies]
+pihole-platform = { path = "../pihole-platform" }

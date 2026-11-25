@@ -7,7 +7,7 @@ use rune::{
 use rune_kit::{Button, Kit, PaletteSeed};
 use tokio_util::sync::CancellationToken;
 
-const LABELS: [&str; 15] = [
+const LABELS: [&str; 17] = [
     "Pi-hole URL",
     "Password / session ID",
     "TOTP",
@@ -23,6 +23,8 @@ const LABELS: [&str; 15] = [
     "Reply",
     "DNSSEC",
     "Destination (local file)",
+    "Existing local snapshot *",
+    "Coverage / policy JSON *",
 ];
 const AUTH: [&str; 3] = ["password", "session", "none"];
 const FORMATS: [&str; 4] = ["csv", "jsonl", "sqlite", "parquet"];
@@ -37,7 +39,9 @@ enum Output {
     Export(String),
 }
 struct State {
-    fields: [TextEdit; 15],
+    fields: [TextEdit; 17],
+    offline: bool,
+    isolated: bool,
     date_focused: [bool; 2],
     auth: usize,
     format: usize,
@@ -49,6 +53,8 @@ struct State {
     last: Option<(Spec, usize, Option<i64>, usize)>,
     cancel: CancellationToken,
     latest: Latest<Result<Output, String>>,
+    progress: std::sync::Arc<std::sync::Mutex<(String, usize)>>,
+    started: std::time::Instant,
 }
 impl Default for State {
     fn default() -> Self {
@@ -68,12 +74,16 @@ impl Default for State {
             "",
             "",
             "pihole.csv",
+            "",
+            "",
         ];
         let mut fields = values.map(TextEdit::new);
         fields[1].set_secure(true);
         fields[2].set_secure(true);
         Self {
             fields,
+            offline: false,
+            isolated: false,
             date_focused: [false; 2],
             auth: 0,
             format: 0,
@@ -87,6 +97,8 @@ impl Default for State {
             last: None,
             cancel: CancellationToken::new(),
             latest: Latest::default(),
+            progress: Default::default(),
+            started: std::time::Instant::now(),
         }
     }
 }
@@ -109,15 +121,66 @@ impl State {
         changed
     }
 
-    fn spec(&self) -> pihole_core::Result<Spec> {
+    fn filters(&self) -> serde_json::Value {
         let f = &self.fields;
-        spec_from_form(
-            serde_json::json!({ "from":f[3].text,"until":f[4].text,"timezone":f[5].text,"disk":self.disk,
-            "domain":f[6].text,"clientIp":f[7].text,"clientName":f[8].text,"upstream":f[9].text,"type":f[10].text,"status":f[11].text,"reply":f[12].text,"dnssec":f[13].text }),
-        )
+        serde_json::json!({ "from":f[3].text,"until":f[4].text,"timezone":f[5].text,"disk":self.disk,
+            "domain":f[6].text,"clientIp":f[7].text,"clientName":f[8].text,"upstream":f[9].text,"type":f[10].text,"status":f[11].text,"reply":f[12].text,"dnssec":f[13].text })
+    }
+    fn spec(&self) -> pihole_core::Result<Spec> {
+        spec_from_form(self.filters())
     }
     fn start(&mut self, action: Action, confirmed: bool) {
         if self.busy {
+            return;
+        }
+        if self.offline {
+            if !matches!(action, Action::Export) {
+                self.status =
+                    "Offline mode exports the existing local snapshot; no API query is available"
+                        .into();
+                return;
+            }
+            if !self.isolated {
+                self.status = "Confirm an existing consistent backup on a separate machine with independent local storage. No backup is created or downloaded.".into();
+                return;
+            }
+            if !confirmed {
+                self.pending = Some(action);
+                self.status = "Confirm offline export. Missing coverage or unsupported privacy policy stops the operation; no online fallback.".into();
+                return;
+            }
+            self.pending = None;
+            let request = pihole_core::OfflineRequest {
+                snapshot: self.fields[15].text.clone(),
+                coverage: self.fields[16].text.clone(),
+                isolated_backup: self.isolated,
+                filters: self.filters(),
+                path: self.fields[14].text.clone(),
+                format: FORMATS[self.format].into(),
+            };
+            self.busy = true;
+            self.status =
+                "Validating local snapshot and coverage. Export in progress. Please don’t cancel."
+                    .into();
+            self.cancel = CancellationToken::new();
+            let cancel = self.cancel.clone();
+            self.started = std::time::Instant::now();
+            self.progress = Default::default();
+            let progress = self.progress.clone();
+            self.latest.request((), move |_| {
+                pihole_core::export_offline(&request, &cancel, |phase, rows| {
+                    if let Ok(mut value) = progress.lock() {
+                        *value = (phase.into(), rows);
+                    }
+                })
+                .map(|r| {
+                    Output::Export(format!(
+                        "Completed offline export: {} rows. File finalized.",
+                        r["count"]
+                    ))
+                })
+                .map_err(|e| e.to_string())
+            });
             return;
         }
         let (spec, start, cursor) = if matches!(action, Action::Next) {
@@ -191,6 +254,21 @@ impl State {
     }
     fn poll(&mut self) -> bool {
         let Some(result) = self.latest.take() else {
+            if self.busy
+                && self.offline
+                && let Ok(value) = self.progress.lock()
+            {
+                let status = format!(
+                    "Export in progress. Please don’t cancel. {}s · {} · {} processed rows",
+                    self.started.elapsed().as_secs(),
+                    value.0,
+                    value.1
+                );
+                if status != self.status {
+                    self.status = status;
+                    return true;
+                }
+            }
             return false;
         };
         self.busy = false;
@@ -247,21 +325,33 @@ fn view(s: &State, cx: &mut Cx<State>) -> El {
         accent: t.text,
     });
     let mut form = col().w_full().gap(10.0).child(
-        text("† At least one")
-            .font(type_::LABEL)
-            .color(t.text_secondary),
+        text(if s.offline {
+            "Query filters are optional"
+        } else {
+            "† At least one"
+        })
+        .font(type_::LABEL)
+        .color(t.text_secondary),
     );
-    for (i, label) in LABELS.iter().enumerate().take(15) {
+    for (i, label) in LABELS.iter().enumerate() {
+        if (s.offline && i < 3) || (!s.offline && i >= 15) {
+            continue;
+        }
+        let label = if s.offline {
+            label.trim_end_matches(" †")
+        } else {
+            label
+        };
         form = form.child(
             col()
                 .w_full()
                 .gap(3.0)
-                .child(text(*label).font(type_::LABEL).color(t.text_secondary))
+                .child(text(label).font(type_::LABEL).color(t.text_secondary))
                 .child(
                     text_input(&s.fields[i], type_::BODY)
                         .single_line()
                         .key(format!("field-{i}"))
-                        .label(*label)
+                        .label(label)
                         .w_full()
                         .h(36.0)
                         .px(10.0)
@@ -282,12 +372,14 @@ fn view(s: &State, cx: &mut Cx<State>) -> El {
         .gap(12.0)
         .fill(t.bg)
         .child(text("Pi-hole Export").font(type_::TITLE).color(t.text))
+        .child(Button::new(if s.offline { "Mode: Offline snapshot (no API/DNS)" } else { "Mode: Online Pi-hole API" })
+            .disabled(s.busy).on_press(|s: &mut State| { s.offline.toggle(); s.isolated = false; s.pending = None; s.last = None; s.preview.clear(); s.fields[1].clear(); s.fields[2].clear(); s.status = if s.offline { "Requires an existing consistent snapshot and trustworthy coverage/policy metadata on a separate machine with independent local storage. Never use the DNS host, live DB or shared storage." } else { "Query on disk uses HTTP and reads the server database. The 48-hour limit is not a safety guarantee." }.into(); }).build(&kit).key("mode"))
         .child(
             row()
                 .gap(8.0)
                 .child(
                     Button::new(format!("Auth: {}", AUTH[s.auth]))
-                        .disabled(s.busy)
+                        .disabled(s.busy || s.offline)
                         .on_press(|s: &mut State| s.auth = (s.auth + 1) % 3)
                         .build(&kit)
                         .key("auth"),
@@ -300,9 +392,9 @@ fn view(s: &State, cx: &mut Cx<State>) -> El {
                         .key("format"),
                 )
                 .child(
-                    Button::new(if s.disk { "Disk: on" } else { "Disk: off" })
+                    Button::new(if s.offline { if s.isolated { "Isolated backup: confirmed" } else { "Isolated backup: NOT confirmed" } } else if s.disk { "API disk: on" } else { "API disk: off" })
                         .disabled(s.busy)
-                        .on_press(|s: &mut State| s.disk.toggle())
+                        .on_press(|s: &mut State| { if s.offline { s.isolated.toggle(); s.pending = None; } else { s.disk.toggle(); } })
                         .build(&kit)
                         .key("disk"),
                 ),
@@ -315,7 +407,7 @@ fn view(s: &State, cx: &mut Cx<State>) -> El {
                 .gap(8.0)
                 .child(
                     Button::new("Query")
-                        .disabled(s.busy)
+                        .disabled(s.busy || s.offline)
                         .on_press(|s: &mut State| s.start(Action::Query, false))
                         .build(&kit)
                         .key("query"),
@@ -323,7 +415,7 @@ fn view(s: &State, cx: &mut Cx<State>) -> El {
                 .child(
                     Button::new("Next page")
                         .disabled(
-                            s.busy || s.last.as_ref().is_none_or(|(_, n, _, total)| n >= total),
+                            s.busy || s.offline || s.last.as_ref().is_none_or(|(_, n, _, total)| n >= total),
                         )
                         .on_press(|s: &mut State| s.start(Action::Next, false))
                         .build(&kit)
@@ -341,7 +433,7 @@ fn view(s: &State, cx: &mut Cx<State>) -> El {
                         .on_press(|s: &mut State| {
                             s.cancel.cancel();
                             s.pending = None;
-                            s.status = "Cancelled. Any partially written file is retained.".into();
+                            s.status = "Cancellation requested. Previous destination is preserved; a partial file is not a completed result.".into();
                         })
                         .build(&kit)
                         .key("cancel"),
@@ -370,15 +462,19 @@ fn view(s: &State, cx: &mut Cx<State>) -> El {
     );
     if s.pending.is_some() {
         root = root.child(
-            Button::new("Confirm heavy query")
-                .on_press(|s: &mut State| {
-                    if let Some(action) = s.pending.take() {
-                        s.start(action, true);
-                    }
-                })
-                .build(&kit)
-                .key("confirm")
-                .transition(feedback),
+            Button::new(if s.offline {
+                "Confirm offline export"
+            } else {
+                "Confirm heavy query"
+            })
+            .on_press(|s: &mut State| {
+                if let Some(action) = s.pending.take() {
+                    s.start(action, true);
+                }
+            })
+            .build(&kit)
+            .key("confirm")
+            .transition(feedback),
         );
     }
     root.child(
@@ -401,7 +497,10 @@ fn view(s: &State, cx: &mut Cx<State>) -> El {
 fn main() {
     let mut spec = AppSpec::new("Pi-hole Export", (760.0, 900.0), State::default, view);
     spec.setup = Some(|s: &mut State, waker| s.latest.set_waker(waker));
-    spec.poll = Some(|s: &mut State, _, _| {
+    spec.poll = Some(|s: &mut State, _, tx| {
+        if s.busy && s.offline {
+            tx.wake_after(std::time::Duration::from_millis(250));
+        }
         let focus = s.sync_date_focus();
         s.poll() || focus
     });
@@ -532,6 +631,50 @@ mod tests {
         });
         rt.frame(0.0);
         assert!(rt.state.fields[3].text.is_empty());
+    }
+    #[test]
+    fn offline_requires_confirmation_and_shows_failure_without_api_fallback() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let output = dir.path().join("previous.csv");
+        std::fs::write(&output, "previous result").unwrap();
+        let mut state = State::default();
+        state.offline = true;
+        state.fields[0] = TextEdit::new(format!("http://{}", listener.local_addr().unwrap()));
+        state.fields[14] = TextEdit::new(output.to_str().unwrap());
+        state.fields[15] = TextEdit::new(dir.path().join("missing.db").to_str().unwrap());
+        state.fields[16] = TextEdit::new(dir.path().join("missing.json").to_str().unwrap());
+        state.start(Action::Export, false);
+        assert!(!state.busy && state.pending.is_none());
+        assert!(
+            state
+                .status
+                .contains("Confirm an existing consistent backup")
+        );
+        state.isolated = true;
+        state.start(Action::Export, false);
+        assert!(!state.busy && state.pending.is_some());
+        state.start(Action::Export, true);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while state.busy && std::time::Instant::now() < deadline {
+            state.poll();
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        assert!(!state.busy);
+        assert!(!state.status.contains("Completed"));
+        assert_eq!(std::fs::read_to_string(output).unwrap(), "previous result");
+        assert_eq!(
+            listener.accept().unwrap_err().kind(),
+            std::io::ErrorKind::WouldBlock
+        );
+        let error = state.status.clone();
+        let mut rt = Runtime::new(state, view, (760.0, 900.0), Env::default());
+        rt.frame(0.0);
+        let tree = rt.accessibility_json();
+        assert!(tree.to_string().contains(&error));
+        assert!(node(&tree, "field-0").is_none());
+        assert!(node(&tree, "field-15").is_some());
     }
     #[test]
     fn long_export_is_blocked_without_starting_worker() {

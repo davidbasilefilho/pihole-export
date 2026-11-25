@@ -75,7 +75,14 @@ describe("result workbench", () => {
   });
 
   test("uses one cyclic focus model for keyboard and mouse-owned controls", () => {
-    expect(connectControls("none")).toEqual(["scheme", "host", "port", "auth", "connect"]);
+    expect(connectControls("none")).toEqual([
+      "scheme",
+      "host",
+      "port",
+      "auth",
+      "connect",
+      "offline",
+    ]);
     expect(moveCyclic(connectControls("none"), "host", -1)).toBe("scheme");
     expect(moveCyclic(connectControls("none"), "host", 1)).toBe("port");
     expect(moveIndex(0, -1, 4)).toBe(3);
