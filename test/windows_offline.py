@@ -172,7 +172,7 @@ with tempfile.TemporaryDirectory(prefix='pihole offline ') as temporary, ExitSta
         t = .8
         values = ['2026-09-01','2026-09-04','UTC','','','','','','','','',str(root/'gui.csv'),str(snapshot),str(coverage)]
         for value in values:
-            events += [{'t':t,'type':'key','name':'a','cmd':True}, {'t':t+.05,'paste':value}, {'t':t+.1,'type':'key','name':'tab'}]
+            events += [{'t':t,'type':'key','name':'a','cmd':True}, {'t':t+.05,'paste':value}, {'t':t+.1,'type':'key','name':'Tab'}]
             t += .25
         events += [{'t':t,'key':'disk'}, {'t':t+.3,'key':'export'}, {'t':t+.6,'key':'confirm'}, {'t':t+5,'type':'mark','name':'offline-complete'}]
         script = root/'input.json'; script.write_text(json.dumps(events))
