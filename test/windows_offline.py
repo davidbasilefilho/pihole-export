@@ -43,7 +43,8 @@ def deny_worker_network(programs):
     # This proves no outbound dependency, not that a blocked call was never attempted.
     names = []
     def ps(command):
-        subprocess.run(['powershell', '-NoProfile', '-NonInteractive', '-Command', "$ErrorActionPreference='Stop'; " + command], check=True, capture_output=True, text=True, timeout=30)
+        result = subprocess.run(['powershell', '-NoProfile', '-NonInteractive', '-Command', "$ErrorActionPreference='Stop'; " + command], capture_output=True, text=True, timeout=30)
+        if result.returncode: raise RuntimeError('Windows test firewall setup failed: '+result.stderr)
     try:
         ps("if (@(Get-NetFirewallProfile | Where-Object { -not $_.Enabled }).Count -ne 0) { throw 'Offline smoke requires enabled Windows firewall profiles' }")
         for program in programs:

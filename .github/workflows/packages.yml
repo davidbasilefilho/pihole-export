@@ -26,6 +26,17 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: '3.13'
+      - name: Prepare isolated Windows offline network test
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Get-Service BFE,MpsSvc | Format-Table Name,Status,StartType
+          foreach ($name in @('BFE', 'MpsSvc')) {
+            $service = Get-Service $name
+            if ($service.StartType -eq 'Disabled') { Set-Service $name -StartupType Manual }
+            Start-Service $name
+          }
+          Get-NetFirewallProfile | Format-Table Name,Enabled,DefaultOutboundAction
       - name: Verify series resolution and execution
         shell: bash
         run: |
