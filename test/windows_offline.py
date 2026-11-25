@@ -58,7 +58,9 @@ def deny_worker_network(programs):
             ps(f"Remove-NetFirewallRule -DisplayName '{name}'")
 
 with tempfile.TemporaryDirectory(prefix='pihole offline ') as temporary, ExitStack() as resources:
-    root = Path(temporary)
+    # Use the canonical executable path for Win32 firewall application filters,
+    # expanding the runner's DOS 8.3 TEMP alias (for example RUNNER~1).
+    root = Path(temporary).resolve()
     tui = root / 'tui.exe'
     shutil.copy2(tui_source, tui)
     gui = root / 'gui.exe'
