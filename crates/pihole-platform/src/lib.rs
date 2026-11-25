@@ -3,6 +3,10 @@
 #[cfg(windows)]
 pub fn local_path(path: &std::path::Path) -> Result<(), &'static str> {
     use std::os::windows::fs::MetadataExt;
+    use windows_sys::Win32::Storage::FileSystem::{
+        FILE_ATTRIBUTE_OFFLINE, FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS,
+        FILE_ATTRIBUTE_RECALL_ON_OPEN, FILE_ATTRIBUTE_REPARSE_POINT,
+    };
     let value = path
         .to_str()
         .ok_or("Offline paths must be Unicode local drive paths")?;
@@ -26,7 +30,18 @@ pub fn local_path(path: &std::path::Path) -> Result<(), &'static str> {
         let stem = name.split('.').next().unwrap_or("").to_ascii_uppercase();
         if matches!(
             stem.as_str(),
-            "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$"
+            "CON"
+                | "PRN"
+                | "AUX"
+                | "NUL"
+                | "CONIN$"
+                | "CONOUT$"
+                | "COM¹"
+                | "COM²"
+                | "COM³"
+                | "LPT¹"
+                | "LPT²"
+                | "LPT³"
         ) || ((stem.starts_with("COM") || stem.starts_with("LPT"))
             && stem.len() == 4
             && stem.as_bytes()[3].is_ascii_digit())
@@ -35,7 +50,14 @@ pub fn local_path(path: &std::path::Path) -> Result<(), &'static str> {
         }
         part.push(name);
         match std::fs::symlink_metadata(&part) {
-            Ok(m) if m.file_attributes() & 0x400 != 0 => {
+            Ok(m)
+                if m.file_attributes()
+                    & (FILE_ATTRIBUTE_REPARSE_POINT
+                        | FILE_ATTRIBUTE_OFFLINE
+                        | FILE_ATTRIBUTE_RECALL_ON_OPEN
+                        | FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS)
+                    != 0 =>
+            {
                 return Err(
                     "Offline paths cannot contain reparse points, junctions or cloud placeholders",
                 );
@@ -95,6 +117,7 @@ mod tests {
             r"C:\a\..\snapshot.db",
             r"C:\NUL",
             r"C:\CONIN$",
+            r"C:\COM¹",
             "C:/snapshot.db",
             "https://example.invalid/db",
         ] {

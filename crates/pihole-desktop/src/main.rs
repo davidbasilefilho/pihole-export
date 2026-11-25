@@ -633,6 +633,50 @@ mod tests {
         assert!(rt.state.fields[3].text.is_empty());
     }
     #[test]
+    fn offline_requires_confirmation_and_shows_failure_without_api_fallback() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let output = dir.path().join("previous.csv");
+        std::fs::write(&output, "previous result").unwrap();
+        let mut state = State::default();
+        state.offline = true;
+        state.fields[0] = TextEdit::new(format!("http://{}", listener.local_addr().unwrap()));
+        state.fields[14] = TextEdit::new(output.to_str().unwrap());
+        state.fields[15] = TextEdit::new(dir.path().join("missing.db").to_str().unwrap());
+        state.fields[16] = TextEdit::new(dir.path().join("missing.json").to_str().unwrap());
+        state.start(Action::Export, false);
+        assert!(!state.busy && state.pending.is_none());
+        assert!(
+            state
+                .status
+                .contains("Confirm an existing consistent backup")
+        );
+        state.isolated = true;
+        state.start(Action::Export, false);
+        assert!(!state.busy && state.pending.is_some());
+        state.start(Action::Export, true);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while state.busy && std::time::Instant::now() < deadline {
+            state.poll();
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        assert!(!state.busy);
+        assert!(!state.status.contains("Completed"));
+        assert_eq!(std::fs::read_to_string(output).unwrap(), "previous result");
+        assert_eq!(
+            listener.accept().unwrap_err().kind(),
+            std::io::ErrorKind::WouldBlock
+        );
+        let error = state.status.clone();
+        let mut rt = Runtime::new(state, view, (760.0, 900.0), Env::default());
+        rt.frame(0.0);
+        let tree = rt.accessibility_json();
+        assert!(tree.to_string().contains(&error));
+        assert!(node(&tree, "field-0").is_none());
+        assert!(node(&tree, "field-15").is_some());
+    }
+    #[test]
     fn long_export_is_blocked_without_starting_worker() {
         let mut state = State::default();
         state.fields[3] = TextEdit::new("01/09/2026 00:00:00");

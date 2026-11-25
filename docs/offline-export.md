@@ -48,14 +48,14 @@ Do not edit or replace paths while an export is running.
 
 ```powershell
 # On a separate Windows machine with an already available, consistent backup:
-& '.\pihole-export-tui-<supported-build>-windows-x64.exe' --offline C:\Offline\snapshot.db `
+& '.\<exact-supported-Windows-TUI-asset>.exe' --offline C:\Offline\snapshot.db `
   --coverage C:\Offline\coverage.json --isolated-backup `
   --from 2026-09-01 --until 2026-09-04 --timezone UTC `
   --format csv --output C:\Exports\history.csv
 ```
 
-Replace `<supported-build>` with the exact downloaded artifact name containing Windows
-offline support (the original v0.2.0 stable build supports Linux offline CLI only).
+Replace the quoted executable path with the exact downloaded Windows TUI asset
+from a build containing offline support (the original v0.2.0 stable build supports Linux offline CLI only).
 No consistent backup is assumed to exist. If it or trustworthy coverage/policy records
 are missing, stop: neither UI acquires a backup or falls back to the API.
 

@@ -45,6 +45,7 @@ def deny_worker_network(programs):
     def ps(command):
         subprocess.run(['powershell', '-NoProfile', '-NonInteractive', '-Command', "$ErrorActionPreference='Stop'; " + command], check=True, capture_output=True, text=True, timeout=30)
     try:
+        ps("if (@(Get-NetFirewallProfile | Where-Object { -not $_.Enabled }).Count -ne 0) { throw 'Offline smoke requires enabled Windows firewall profiles' }")
         for program in programs:
             name = 'pihole-offline-test-' + uuid.uuid4().hex
             quoted = str(program).replace("'", "''")
@@ -110,9 +111,9 @@ with tempfile.TemporaryDirectory(prefix='pihole offline ') as temporary, ExitSta
         assert forbidden not in logs
 
     # Actual terminal input through Windows ConPTY, not a component mock.
-    from winpty import PtyProcess
+    from winpty import PtyProcess, Backend
     import pyte
-    child = PtyProcess.spawn(subprocess.list2cmdline([str(tui)]), cwd=str(root), env=env, dimensions=(70, 150))
+    child = PtyProcess.spawn([str(tui)], cwd=str(root), env=env, dimensions=(70, 150), backend=str(Backend.ConPTY))
     screen = pyte.Screen(150, 70); stream = pyte.Stream(screen)
     import threading
     stopped = threading.Event()
